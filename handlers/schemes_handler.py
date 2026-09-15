@@ -1,6 +1,7 @@
 """Handlers for natural language Telugu scheme queries and interactive scheme navigation."""
 
 import html
+import io
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
@@ -10,6 +11,7 @@ from data.schemes import SCHEMES, get_all_categories, get_scheme_by_id
 from services.ai_engine import analyze_citizen_query, transcribe_voice
 from services.html_sanitizer import prepare_telegram_message, strip_html_tags, split_telegram_message
 from services.matcher import format_scheme_detailed_telugu
+from services.tts_service import generate_telugu_speech
 
 
 def build_scheme_actions_keyboard(scheme: dict = None, matched_schemes: list = None, dynamic_urls: list = None) -> InlineKeyboardMarkup:
@@ -29,6 +31,11 @@ def build_scheme_actions_keyboard(scheme: dict = None, matched_schemes: list = N
             InlineKeyboardButton("🌐 దరఖాస్తు వెబ్‌సైట్", url=scheme["official_link"]),
             InlineKeyboardButton("📄 పత్రాల జాబితా", callback_data=f"doc:{scheme['id']}"),
         ])
+
+    # Voice audio listening button
+    buttons.append([
+        InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+    ])
 
     # If other schemes matched, add navigation buttons
     if matched_schemes and len(matched_schemes) > 1:
@@ -90,6 +97,45 @@ async def safe_edit_text(query_msg, text: str, reply_markup=None, disable_web_pa
         )
 
 
+def is_voice_requested(text: str) -> bool:
+    """Detects whether citizen explicitly requests audio/voice response."""
+    lower = text.lower()
+    voice_cues = [
+        "వాయిస్", "వాయిస్‌", "ఆడియో", "వినాలి", "వినాలని", "నోటితో", "మాట్లాడి",
+        "voice", "audio", "speak", "listen", "read out", "audio note"
+    ]
+    return any(c in lower for c in voice_cues)
+
+
+async def send_voice_response(
+    chat_id: int,
+    text: str,
+    context: ContextTypes.DEFAULT_TYPE,
+    reply_to_message_id: int = None,
+) -> bool:
+    """Synthesizes Telugu speech and sends voice message to citizen."""
+    try:
+        await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
+        audio_data = await generate_telugu_speech(text)
+        if audio_data:
+            voice_file = io.BytesIO(audio_data)
+            voice_file.name = "sahayam_telugu_voice.mp3"
+            await context.bot.send_voice(
+                chat_id=chat_id,
+                voice=voice_file,
+                caption="🔊 <b>సహాయం ఆడియో సమాధానం (Telugu Voice Response)</b>",
+                parse_mode=ParseMode.HTML,
+                reply_to_message_id=reply_to_message_id,
+            )
+            return True
+        else:
+            config.logger.warning("generate_telugu_speech returned empty audio.")
+            return False
+    except Exception as e:
+        config.logger.error(f"Error sending voice response: {e}", exc_info=True)
+        return False
+
+
 async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles natural language messages in Telugu or English."""
     if not update.message or not update.message.text:
@@ -110,6 +156,9 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     result = await analyze_citizen_query(user_text, conversation_history=history)
     matched = result.get("matched_schemes", [])
     dynamic_urls = result.get("dynamic_urls", [])
+
+    # Cache last response for voice playback on demand
+    context.user_data["last_response_text"] = result["text"]
 
     # Update conversation history
     history.append({"role": "user", "text": user_text})
@@ -134,6 +183,16 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
             disable_web_page_preview=True,
         )
 
+    # Send voice if citizen requested or auto_voice mode is on
+    should_send_voice = context.user_data.get("auto_voice", False) or is_voice_requested(user_text)
+    if should_send_voice and update.effective_chat:
+        await send_voice_response(
+            chat_id=update.effective_chat.id,
+            text=result["text"],
+            context=context,
+            reply_to_message_id=update.message.message_id,
+        )
+
 
 async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Shows full details of a specific scheme when clicked from buttons."""
@@ -150,6 +209,7 @@ async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
         return
 
     text = format_scheme_detailed_telugu(scheme, scheme.get("qualify_reason_te", "అర్హత కలిగిన లబ్ధిదారులు దరఖాస్తు చేసుకోవచ్చు."))
+    context.user_data["last_response_text"] = text
     markup = build_scheme_actions_keyboard(scheme)
 
     if query.message:
@@ -288,6 +348,7 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         history.append({"role": "user", "text": transcribed_text})
         history.append({"role": "model", "text": strip_html_tags(result["text"])})
         context.user_data["conversation_history"] = history[-10:]
+        context.user_data["last_response_text"] = result["text"]
 
         top_scheme = matched[0][0] if matched else None
         reply_markup = build_scheme_actions_keyboard(
@@ -319,12 +380,70 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         except Exception:
             pass
 
+        # Send voice audio response automatically since citizen spoke
+        if update.effective_chat:
+            await send_voice_response(
+                chat_id=update.effective_chat.id,
+                text=result["text"],
+                context=context,
+                reply_to_message_id=message.message_id,
+            )
+
     except Exception as e:
         config.logger.error(f"Error handling voice message: {e}", exc_info=True)
         await status_msg.edit_text(
             "⚠️ <i>వాయిస్ సందేశాన్ని ప్రాసెస్ చేయడంలో సాంకేతిక సమస్య ఏర్పడింది. దయచేసి టైప్ చేసి పంపండి.</i>",
             parse_mode=ParseMode.HTML,
         )
+
+
+async def speak_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Triggered when user clicks '🔊 వాయిస్‌లో వినండి (Listen Audio)' button."""
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer("🔊 ఆడియో రూపొందిస్తున్నాము... కాసేపు వేచి ఉండండి.")
+    chat_id = update.effective_chat.id if update.effective_chat else query.message.chat_id
+
+    # Retrieve last response text from user session or query message
+    last_text = context.user_data.get("last_response_text")
+    if not last_text and query.message and query.message.text:
+        last_text = query.message.text
+
+    if not last_text:
+        if query.message:
+            await query.message.reply_text("క్షమించండి, వాయిస్ రూపొందించడానికి సమాచారం లేదు. దయచేసి ఒక పథకం లేదా ప్రశ్నను అడగండి.")
+        return
+
+    success = await send_voice_response(chat_id, last_text, context)
+    if not success and query.message:
+        await query.message.reply_text("⚠️ ఆడియో రూపొందించడంలో సాంకేతిక సమస్య ఏర్పడింది. దయచేసి మళ్లీ ప్రయత్నించండి.")
+
+
+async def voice_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Toggles automatic voice responses on/off for the citizen."""
+    current = context.user_data.get("auto_voice", False)
+    new_state = not current
+    context.user_data["auto_voice"] = new_state
+
+    if new_state:
+        msg = (
+            "🔊 <b>వాయిస్ మోడ్ ఆన్ చేయబడింది (Voice Mode ON)!</b>\n\n"
+            "ఇకపై మీరు అడిగే ప్రతి ప్రశ్నకు లిఖితపూర్వక సమాధానంతో పాటు <b>తెలుగు వాయిస్ ఆడియో</b> కూడా స్వయంచాలకంగా పంపబడుతుంది.\n\n"
+            "💡 <i>వాయిస్ మోడ్ ఆఫ్ చేయాలనుకుంటే మళ్లీ <code>/voice</code> అని టైప్ చేయండి.</i>"
+        )
+    else:
+        msg = (
+            "🔇 <b>వాయిస్ మోడ్ ఆఫ్ చేయబడింది (Voice Mode OFF).</b>\n\n"
+            "ఇకపై కేవలం టెక్స్ట్ రూపంలో మాత్రమే సమాధానాలు వస్తాయి.\n"
+            "(మీకు అవసరమైనప్పుడు '🔊 వాయిస్‌లో వినండి' బటన్ నొక్కి కూడా ఆడియో వినవచ్చు)."
+        )
+
+    if update.message:
+        await safe_reply_text(update.message, text=msg)
+    elif update.callback_query and update.callback_query.message:
+        await safe_reply_text(update.callback_query.message, text=msg)
 
 
 async def reset_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

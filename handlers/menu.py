@@ -10,6 +10,7 @@ from handlers.schemes_handler import (
     reset_chat_command,
     scheme_detail_callback,
     scheme_documents_callback,
+    speak_voice_callback,
 )
 from handlers.start import get_home_keyboard, get_welcome_text, help_command
 from handlers.wizard import (
@@ -103,3 +104,6 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
 
     elif data.startswith("doc:"):
         await scheme_documents_callback(update, context)
+
+    elif data == "voice:speak":
+        await speak_voice_callback(update, context)
