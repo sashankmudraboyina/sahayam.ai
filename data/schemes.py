@@ -2,7 +2,7 @@
 
 from typing import Any, Dict, List
 
-SCHEMES: List[Dict[str, Any]] = [
+CURATED_SCHEMES: List[Dict[str, Any]] = [
     {
         "id": "pm_kisan",
         "name_te": "పీఎం కిసాన్ సమ్మాన్ నిధి (PM-KISAN)",
@@ -401,12 +401,74 @@ SCHEMES: List[Dict[str, Any]] = [
     }
 ]
 
+# Load and merge all 97 schemes from govt_schemes_dataset.md
+from data.dataset_loader import load_dataset_schemes
+
+_raw_dataset_schemes = load_dataset_schemes()
+_curated_by_id = {s["id"]: s for s in CURATED_SCHEMES}
+
+SCHEMES: List[Dict[str, Any]] = []
+_processed_ids = set()
+
+# 1. First enrich dataset schemes with handcrafted Telugu details where available
+for d_sch in _raw_dataset_schemes:
+    sid = d_sch["id"]
+    if sid in _curated_by_id:
+        curated = _curated_by_id[sid]
+        merged = {**d_sch, **curated}
+        # Keep raw dataset entry and launched info
+        merged["raw_dataset_entry"] = d_sch.get("raw_dataset_entry", "")
+        if "launched_by" in d_sch:
+            merged["launched_by"] = d_sch["launched_by"]
+        SCHEMES.append(merged)
+        _processed_ids.add(sid)
+    else:
+        SCHEMES.append(d_sch)
+        _processed_ids.add(sid)
+
+# 2. Add any standalone curated schemes
+for c_sch in CURATED_SCHEMES:
+    if c_sch["id"] not in _processed_ids:
+        SCHEMES.append(c_sch)
+        _processed_ids.add(c_sch["id"])
+
+
+SCHEME_ALIASES: Dict[str, str] = {
+    "pmfby": "pmfby_crop_insurance",
+    "pm_kisan_pension": "pm_kisan_maandhan",
+    "kcc": "kisan_credit_card",
+    "ab_pmjay": "ayushman_bharat",
+    "pmjay": "ayushman_bharat",
+    "pmay": "pmay_housing",
+    "pm_awas_yojana": "pmay_housing",
+    "ts_aarogyasri": "aarogyasri",
+    "ysr_aarogyasri": "ap_aarogyasri",
+    "ts_aasara": "aasara_pension",
+    "ts_aasara_pension": "aasara_pension",
+    "ts_rythu_bharosa": "rythu_bharosa",
+    "rythu_bandhu": "rythu_bharosa",
+    "ap_rythu_bharosa": "ap_annadata_sukhibhava",
+    "annadata_sukhibhava": "ap_annadata_sukhibhava",
+    "amma_vodi": "ap_talliki_vandanam",
+    "talliki_vandanam": "ap_talliki_vandanam",
+    "jagananna_amma_vodi": "ap_talliki_vandanam",
+    "ysr_pension_kanuka": "ap_ntr_bharosa_pension",
+    "ntr_bharosa": "ap_ntr_bharosa_pension",
+    "deepam": "ap_deepam_2",
+    "dalit_bandhu": "ts_dalit_bandhu",
+    "mahalakshmi": "ts_mahalakshmi",
+    "shg_dwakra_loans": "ap_sunna_vaddi",
+}
+
+
 def get_scheme_by_id(scheme_id: str) -> Dict[str, Any] | None:
-    """Retrieve a scheme dictionary by its unique identifier."""
+    """Retrieve a scheme dictionary by its unique identifier or alias."""
+    target_id = SCHEME_ALIASES.get(scheme_id, scheme_id)
     for s in SCHEMES:
-        if s["id"] == scheme_id:
+        if s["id"] == target_id or s["id"] == scheme_id:
             return s
     return None
+
 
 def get_all_categories() -> List[Dict[str, str]]:
     """Returns unique categories with friendly Telugu names and emoji."""
@@ -416,6 +478,8 @@ def get_all_categories() -> List[Dict[str, str]]:
         {"key": "education", "name_te": "🎓 విద్యార్థులు & చదువు"},
         {"key": "health", "name_te": "🏥 ఆరోగ్యం & చికిత్స"},
         {"key": "pension", "name_te": "👴 వృద్ధులు & పెన్షన్లు"},
-        {"key": "business", "name_te": "💼 వ్యాపారం & రుణాలు"},
+        {"key": "business", "name_te": "💼 వ్యాపారం & రుణాలు / ఉపాధి"},
         {"key": "housing", "name_te": "🏠 గృహ నిర్మాణం & ఇండ్లు"},
+        {"key": "welfare", "name_te": "🤝 సంక్షేమం & సామాజిక భద్రత"},
     ]
+

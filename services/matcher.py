@@ -27,7 +27,14 @@ def extract_entities(text: str) -> Dict[str, Any]:
         "is_tenant_farmer": False,
         "categories": set(),
         "keywords_found": [],
+        "jurisdiction": None,
     }
+
+    # State jurisdiction preference
+    if any(w in lower_text for w in ["తెలంగాణ", "telangana", "ts", "హైదరాబాద్"]):
+        entities["jurisdiction"] = "Telangana"
+    elif any(w in lower_text for w in ["ఆంధ్రప్రదేశ్", "ఆంధ్ర", "andhra", "ap", "విజయవాడ", "అమరావతి"]):
+        entities["jurisdiction"] = "Andhra Pradesh"
 
     # 1. Land size extraction (e.g., "రెండు ఎకరాలు", "2 ఎకరాల", "2.5 acres", "ఒక ఎకరం")
     # Telugu word numbers
@@ -63,6 +70,7 @@ def extract_entities(text: str) -> Dict[str, Any]:
         "pension": ["పెన్షన్", "పింఛను", "ముసలి", "వృద్ధ", "వితంతువు", "వికలాంగ", "దివ్యాంగ", "చేయూత", "ఆసరా", "pension", "old age", "widow", "disabled"],
         "business": ["వ్యాపారం", "షాపు", "తోపుడు బండి", "దుకాణం", "చిరు వ్యాపారి", "ముద్ర", "లోన్", "స్వయం ఉపాధి", "business", "shop", "vendor", "loan"],
         "housing": ["ఇల్లు", "గృహం", "ఇంటి స్థలం", "ఆవాస్", "ఇందిరమ్మ", "నిర్మాణం", "house", "housing", "home", "plot"],
+        "welfare": ["సంక్షేమం", "బీసీ", "ఎస్సీ", "ఎస్టీ", "మైనారిటీ", "కార్మికులు", "కూలీ", "ఉపాధి హామీ", "welfare", "sc", "st", "bc", "minority", "worker", "labour", "mgnrega"],
     }
 
     for cat, words in category_signatures.items():
@@ -72,6 +80,14 @@ def extract_entities(text: str) -> Dict[str, Any]:
                 entities["keywords_found"].append(w)
 
     return entities
+
+
+GENERIC_NAME_TOKENS = {
+    "రైతు", "రైతులు", "రైతును", "రైతులకు", "మహిళ", "మహిళలు", "మహిళలకు",
+    "విద్యార్థి", "విద్యార్థులు", "విద్యార్థులకు", "పథకం", "పథకాలు", "పథకానికి",
+    "స్కీమ్", "యోజన", "ప్రభుత్వ", "సాయం", "farmer", "farmers", "scheme", "schemes",
+    "yojana", "government", "assistance", "support",
+}
 
 
 def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
@@ -88,14 +104,38 @@ def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
         if scheme["category"] in entities["categories"]:
             score += 4.0
 
-        # 2. Tag matching
+        # 2. Jurisdiction relevance
+        if entities.get("jurisdiction"):
+            req_jur = entities["jurisdiction"]
+            sch_jur = scheme.get("jurisdiction", "")
+            if sch_jur == req_jur:
+                score += 3.0
+            elif sch_jur in ["Central", "State & Central", "State (AP / TS)"]:
+                score += 0.5
+            elif sch_jur and sch_jur != req_jur:
+                score -= 6.0
+        elif scheme.get("jurisdiction") == "Central":
+            score += 1.0
+
+        # 3. Direct Scheme Name / Also-known-as matching (excluding generic words)
+        name_tokens = re.findall(r"[\w\u0C00-\u0C7F]+", scheme.get("name_te", "").lower())
+        name_tokens.extend(re.findall(r"[\w\u0C00-\u0C7F]+", scheme.get("name_en", "").lower()))
+        if scheme.get("also_known_as"):
+            name_tokens.extend(re.findall(r"[\w\u0C00-\u0C7F]+", scheme["also_known_as"].lower()))
+
+        for token in name_tokens:
+            if len(token) >= 3 and token not in GENERIC_NAME_TOKENS and token in lower_query:
+                score += 5.0
+                break
+
+        # 4. Tag matching
         matched_tags = 0
         for tag in scheme["tags"]:
             if tag.lower() in lower_query:
                 matched_tags += 1
                 score += 2.0
 
-        # 3. Specific constraint analysis (Land, Farmer type, etc.)
+        # 5. Specific constraint analysis (Land, Farmer type, etc.)
         if scheme["category"] == "agriculture":
             if entities["land_acres"] is not None:
                 max_allowed = scheme.get("max_land_acres")
@@ -115,7 +155,10 @@ def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
                     reason_parts.append("సాగుభూమి ఉన్న రైతులందరికీ ఈ పథకం వర్తిస్తుంది.")
 
             if entities["is_small_farmer"]:
-                score += 1.5
+                if scheme.get("max_land_acres") is not None:
+                    score += 2.0
+                else:
+                    score += 1.0
                 if not reason_parts:
                     reason_parts.append("చిన్న మరియు సన్నకారు రైతు వర్గానికి ప్రభుత్వం అందించే ప్రత్యేక సంక్షేమ పథకం ఇది.")
 

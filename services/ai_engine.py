@@ -1,10 +1,12 @@
-"""AI Service Module integrating Real-Time Dynamic Search, Multi-Turn Conversation, and Domain Boundary Guardrails."""
+"""AI Service Module grounded strictly on the Government Schemes Dataset with Multi-Turn Conversation & Boundary Guardrails."""
 
 import json
 import logging
 import os
 import re
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
 from data.schemes import SCHEMES
 from services.html_sanitizer import prepare_telegram_message
 from services.matcher import (
@@ -17,13 +19,26 @@ logger = logging.getLogger("telegram_bot.ai_engine")
 
 MODELS_TO_TRY = ["gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"]
 
-SYSTEM_INSTRUCTION = """
-You are 'సహాయం (Sahayam.ai)', an empathetic, expert, conversational Telugu AI assistant dedicated to helping Indian citizens discover and apply for Central and State government welfare schemes.
+# Load local Government Schemes Dataset
+DATASET_PATH = Path(__file__).resolve().parent.parent / "govt_schemes_dataset.md"
+try:
+    with open(DATASET_PATH, "r", encoding="utf-8") as f:
+        DATASET_CONTENT = f.read()
+except Exception as e:
+    logger.warning(f"Could not load govt_schemes_dataset.md: {e}")
+    DATASET_CONTENT = ""
+
+SYSTEM_INSTRUCTION = f"""You are 'సహాయం (Sahayam.ai)', an empathetic, expert, conversational Telugu AI assistant dedicated to helping Indian citizens discover and apply for Central and State government welfare schemes.
 Always respond primarily in natural, polite, respectful Telugu (తెలుగు) with key terms/names optionally accompanied by English in parentheses.
+
+STRICT LOCAL DATASET GROUNDING (NO EXTERNAL WEB BROWSING):
+- You MUST base all scheme information, eligibility rules, financial amounts, required documents, and portal links STRICTLY on the authoritative Government Welfare Schemes Dataset provided below.
+- Do NOT browse the live web or call external search engines.
+- When schemes were renamed (e.g. YSR Amma Vodi -> Talliki Vandanam, YSR Rythu Bharosa -> Annadata Sukhibhava, Rythu Bandhu -> Rythu Bharosa, YSR Pension Kanuka -> NTR Bharosa), reflect the current active scheme name and details from the dataset while noting the previous name.
 
 CONVERSATIONAL CONTINUITY & BOUNDARIES:
 1. Multi-Turn Context:
-   - When a citizen asks follow-up questions (e.g., "దీనికి ఎలా దరఖాస్తు చేయాలి?", "ఏ పత్రాలు కావాలి?", "నాకు రేషన్ కార్డు లేదు, వర్తిస్తుందా?", "మా భార్య పేరు మీద పెట్టొచ్చా?"), resolve references to the schemes discussed previously in the conversation.
+   - When a citizen asks follow-up questions (e.g., "దీనికి ఎలా దరఖాస్తు చేయాలి?", "ఏ పత్రాలు కావాలి?", "నాకు రేషన్ కార్డు లేదు, వర్తిస్తుందా?", "మా భార్య పేరు మీద పెట్టొచ్చా?"), resolve references to the schemes discussed previously in the conversation using the dataset.
 2. Strict Domain Boundary:
    - Stay strictly within the boundary of Government Welfare Schemes, social security, subsidies, pensions, agricultural support, scholarships, housing, healthcare, loans (MUDRA/SVANidhi), eligibility criteria, required documents, and application procedures.
    - If a citizen asks about unrelated topics (movies, sports, coding, general trivia, politics):
@@ -65,6 +80,10 @@ CONVERSATIONAL CONTINUITY & BOUNDARIES:
    Use ONLY Telegram HTML tags:
    <b>bold</b>, <i>italic</i>, <code>code</code>, <a href="URL">links</a>.
    Do NOT use markdown asterisks (**) or hashes (##).
+
+<GOVERNMENT_WELFARE_SCHEMES_DATASET>
+{DATASET_CONTENT}
+</GOVERNMENT_WELFARE_SCHEMES_DATASET>
 """
 
 
@@ -91,14 +110,24 @@ def markdown_to_telegram_html(text: str) -> str:
     return text
 
 
-def extract_dynamic_gov_urls(text: str) -> List[str]:
-    """Extracts valid official government URLs from dynamic search response."""
-    urls = re.findall(r'https?://[^\s"<>\)]+(?:\.gov\.in|\.nic\.in|myscheme\.gov\.in)[^\s"<>\)]*', text)
+def extract_gov_urls(text: str, matched_schemes: Optional[List[Tuple[Dict[str, Any], float, str]]] = None) -> List[str]:
+    """Extracts valid official government URLs from dataset response or matched schemes."""
+    urls = re.findall(
+        r'https?://[^\s"<>\)]+(?:\.gov\.in|\.nic\.in|myscheme\.gov\.in|cgg\.gov\.in|telangana\.gov\.in|ap\.gov\.in)[^\s"<>\)]*',
+        text,
+    )
     clean_urls = []
     for u in urls:
         u = u.rstrip(".,;:'\"")
         if u not in clean_urls:
             clean_urls.append(u)
+
+    if matched_schemes:
+        for m in matched_schemes[:3]:
+            sch_link = m[0].get("official_link")
+            if sch_link and sch_link not in clean_urls and sch_link != "https://myscheme.gov.in":
+                clean_urls.append(sch_link)
+
     return clean_urls
 
 
@@ -138,23 +167,34 @@ def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Option
 
 
 async def analyze_citizen_query(user_text: str, conversation_history: list = None) -> Dict[str, Any]:
-    """Dynamically fetches schemes and answers conversational queries maintaining multi-turn context."""
+    """Answers conversational queries grounded strictly on the local government schemes dataset."""
     client = _get_gemini_client()
 
-    # Local matches for fallback or context grounding
+    # Match relevant schemes from local database for context & fallback
     matched_results = match_schemes(user_text)
 
-    # If Gemini is configured, perform Real-Time Dynamic Conversational Search
+    # If Gemini is configured, use it grounded strictly on the dataset (without external search tools)
     if client:
         from google.genai import types
 
-        context_schemes = [m[0] for m in matched_results[:4]] if matched_results else SCHEMES[:4]
+        matched_context = [
+            {
+                "id": m[0].get("id"),
+                "name": m[0].get("name_te"),
+                "jurisdiction": m[0].get("jurisdiction"),
+                "category": m[0].get("category_te"),
+                "benefits": m[0].get("benefits_te"),
+                "eligibility": m[0].get("eligibility_te"),
+                "official_link": m[0].get("official_link"),
+            }
+            for m in matched_results[:5]
+        ] if matched_results else []
+
         knowledge_context = (
-            f"Knowledge Base reference for common schemes:\n{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
-            "Search dynamically across official trusted sources (myscheme.gov.in, india.gov.in, pib.gov.in, ap.gov.in, telangana.gov.in) "
-            "to provide the freshest information. If user query is ambiguous, ask proactive clarifying questions.\n"
-            "CRITICAL FORMATTING RULE: If multiple schemes match (2 or more schemes), keep the overview short and concise with just Scheme Name, 1-sentence benefit, and 1-sentence eligibility for each scheme. Do NOT write full documents and application procedures for multiple schemes together. Inform user to tap the buttons below or ask for full details of any scheme.\n"
-            "If only one scheme is being asked, or if the user asks for details/documents/how to apply for a specific scheme, provide the full structured details."
+            f"Top matched schemes from dataset for this query:\n{json.dumps(matched_context, ensure_ascii=False, indent=2)}\n\n"
+            "Ground your answer strictly on the authoritative dataset provided in the system instruction. "
+            "Do NOT browse or search online. Follow the concise multi-scheme format if 2 or more schemes apply. "
+            "If user query is vague, ask 1 or 2 targeted Telugu clarifying questions."
         )
 
         # Build multi-turn contents list
@@ -175,47 +215,38 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
 
         for model_name in MODELS_TO_TRY:
             try:
-                # Enable Google Search Grounding for real-time dynamic retrieval
-                search_config = types.GenerateContentConfig(
+                # Strictly local dataset grounding: NO tools=[google_search]
+                gen_config = types.GenerateContentConfig(
                     system_instruction=SYSTEM_INSTRUCTION,
-                    tools=[types.Tool(google_search=types.GoogleSearch())],
                 )
 
                 response = client.models.generate_content(
                     model=model_name,
                     contents=contents,
-                    config=search_config,
+                    config=gen_config,
                 )
 
                 if response and response.text:
                     formatted_text = prepare_telegram_message(markdown_to_telegram_html(response.text))
-                    gov_urls = extract_dynamic_gov_urls(response.text)
+                    gov_urls = extract_gov_urls(response.text, matched_results)
 
-                    # Also inspect grounding metadata if available
-                    if response.candidates and response.candidates[0].grounding_metadata:
-                        meta = response.candidates[0].grounding_metadata
-                        if meta.grounding_chunks:
-                            for chunk in meta.grounding_chunks:
-                                if chunk.web and chunk.web.uri and chunk.web.uri not in gov_urls:
-                                    gov_urls.append(chunk.web.uri)
-
-                    logger.info(f"Conversational scheme answer generated via {model_name}.")
+                    logger.info(f"Dataset-grounded conversational answer generated via {model_name}.")
                     return {
-                        "mode": "dynamic_ai",
+                        "mode": "dataset_ai",
                         "model": model_name,
                         "text": formatted_text,
                         "matched_schemes": matched_results,
                         "dynamic_urls": gov_urls,
                     }
             except Exception as e:
-                logger.warning(f"Dynamic search on {model_name} failed: {e}. Trying next model or fallback.")
+                logger.warning(f"Dataset query on {model_name} failed: {e}. Trying next model or fallback.")
                 continue
 
-    # 2. Rule-based intelligent fallback output if dynamic search was unavailable
+    # 2. Rule-based intelligent fallback output if Gemini was unavailable or errored
     if not matched_results:
         no_match_text = (
             "🙏 <b>సహాయం (Sahayam.ai)</b>\n\n"
-            "క్షమించండి, మీరు తెలిపిన వివరాలతో సరిపోయే పథకాలను గుర్తించలేకపోయాము.\n\n"
+            "క్షమించండి, మీరు తెలిపిన వివరాలతో సరిపోయే పథకాలను మా డేటాసెట్‌లో గుర్తించలేకపోయాము.\n\n"
             "💡 <b>సూచన:</b> దయచేసి మీ వృత్తి (రైతు, విద్యార్థి, మహిళ, వ్యాపారి), మీ వద్ద ఉన్న భూమి (ఉదా: 2 ఎకరాలు), "
             "లేదా మీకు కావలసిన సాయం గురించి మరింత వివరంగా తెలియజేయండి.\n\n"
             "<i>ఉదాహరణ: 'నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?'</i>"

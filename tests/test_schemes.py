@@ -124,6 +124,56 @@ class TestTeluguSchemePlatform(unittest.TestCase):
         self.assertIn(f"sch:{matched[0][0]['id']}", button_callbacks)
         self.assertIn(f"sch:{matched[1][0]['id']}", button_callbacks)
 
+    def test_dataset_loading_all_97_schemes(self):
+        from data.dataset_loader import load_dataset_schemes
+        from pathlib import Path
+
+        schemes = load_dataset_schemes()
+        self.assertEqual(len(schemes), 97, "Should load all 97 schemes from govt_schemes_dataset.md")
+
+        central_count = len([s for s in schemes if s["jurisdiction"] == "Central"])
+        ts_count = len([s for s in schemes if s["jurisdiction"] == "Telangana"])
+        ap_count = len([s for s in schemes if s["jurisdiction"] == "Andhra Pradesh"])
+
+        self.assertEqual(central_count, 38, "Part 1 should have 38 Central schemes")
+        self.assertEqual(ts_count, 28, "Part 2 should have 28 Telangana schemes")
+        self.assertEqual(ap_count, 31, "Part 3 should have 31 Andhra Pradesh schemes")
+
+        # Every scheme must have required fields
+        for s in schemes:
+            self.assertTrue(s["id"], f"Scheme {s['name_en']} missing id")
+            self.assertTrue(s["name_te"], f"Scheme {s['id']} missing name_te")
+            self.assertTrue(s["name_en"], f"Scheme {s['id']} missing name_en")
+            self.assertTrue(s["category"], f"Scheme {s['id']} missing category")
+            self.assertTrue(s["benefits_te"], f"Scheme {s['id']} missing benefits_te")
+            self.assertTrue(s["eligibility_te"], f"Scheme {s['id']} missing eligibility_te")
+            self.assertTrue(len(s["documents_te"]) > 0, f"Scheme {s['id']} missing documents")
+            self.assertTrue(s["official_link"].startswith("http"), f"Scheme {s['id']} invalid link")
+
+    def test_telangana_and_andhra_specific_matching(self):
+        # Telangana Mahalakshmi
+        ts_res = match_schemes("తెలంగాణలో మహిళలకు మహాలక్ష్మి పథకం ద్వారా ఏమి వస్తుంది?")
+        self.assertTrue(any(s["id"] == "ts_mahalakshmi" for s, _, _ in ts_res[:3]))
+
+        # AP Talliki Vandanam (formerly Amma Vodi)
+        ap_res = match_schemes("ఆంధ్రప్రదేశ్ లో తల్లికి వందనం అమ్మ ఒడి పథకం వివరాలు")
+        self.assertTrue(any(s["id"] == "ap_talliki_vandanam" for s, _, _ in ap_res[:3]))
+
+        # AP Deepam 2.0
+        deepam_res = match_schemes("ఆంధ్రప్రదేశ్ లో ఉచిత గ్యాస్ సిలిండర్ల దీపం 2.0 పథకం")
+        self.assertTrue(any(s["id"] == "ap_deepam_2" for s, _, _ in deepam_res[:3]))
+
+        # AP Annadata Sukhibhava (formerly Rythu Bharosa)
+        annadata_res = match_schemes("ఆంధ్రప్రదేశ్ లో రైతులకు అన్నదాత సుఖీభవ పెట్టుబడి సాయం")
+        self.assertTrue(any(s["id"] == "ap_annadata_sukhibhava" for s, _, _ in annadata_res[:3]))
+
+    def test_irrelevant_features_removed(self):
+        from pathlib import Path
+        base_dir = Path(__file__).resolve().parent.parent
+        self.assertFalse((base_dir / "handlers" / "tools.py").exists(), "handlers/tools.py must be deleted")
+        self.assertFalse((base_dir / "handlers" / "feedback.py").exists(), "handlers/feedback.py must be deleted")
+
 
 if __name__ == "__main__":
     unittest.main()
+
