@@ -17,7 +17,11 @@ from telegram.ext import (
 
 import config
 from handlers.menu import main_callback_router
-from handlers.schemes_handler import categories_callback, handle_citizen_message
+from handlers.schemes_handler import (
+    categories_callback,
+    handle_citizen_message,
+    handle_citizen_voice,
+)
 from handlers.start import help_command, start_command
 from handlers.wizard import start_wizard_callback
 
@@ -83,9 +87,12 @@ def main() -> None:
     # 2. Interactive Menu & Wizard Callbacks
     application.add_handler(CallbackQueryHandler(main_callback_router))
 
-    # 3. Natural Language Telugu/English Citizen Message Handler
+    # 3. Natural Language Telugu/English Citizen Message Handler (Text & Voice)
     application.add_handler(
         MessageHandler(filters.TEXT & ~filters.COMMAND, handle_citizen_message)
+    )
+    application.add_handler(
+        MessageHandler(filters.VOICE | filters.AUDIO, handle_citizen_voice)
     )
 
     # 4. Unknown Commands Fallback

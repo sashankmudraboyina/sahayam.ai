@@ -5,8 +5,9 @@ from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
 
+import config
 from data.schemes import SCHEMES, get_all_categories, get_scheme_by_id
-from services.ai_engine import analyze_citizen_query
+from services.ai_engine import analyze_citizen_query, transcribe_voice
 from services.matcher import format_scheme_detailed_telugu
 
 
@@ -184,3 +185,92 @@ async def category_browse_callback(update: Update, context: ContextTypes.DEFAULT
 
     if query.message:
         await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+
+
+async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles Telugu/English citizen voice messages and audio files."""
+    message = update.message
+    if not message or (not message.voice and not message.audio):
+        return
+
+    # Indicate recording/typing action
+    if update.effective_chat:
+        await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
+
+    status_msg = await message.reply_text(
+        "🎙 <i>మీ వాయిస్ సందేశాన్ని వింటున్నాను... దయచేసి కాసేపు వేచి ఉండండి.</i>",
+        parse_mode=ParseMode.HTML,
+    )
+
+    try:
+        # Download voice file
+        voice_obj = message.voice or message.audio
+        voice_file = await context.bot.get_file(voice_obj.file_id)
+        voice_bytes = await voice_file.download_as_bytearray()
+        mime_type = getattr(voice_obj, "mime_type", "audio/ogg") or "audio/ogg"
+
+        # Transcribe Telugu audio with Gemini
+        transcribed_text = transcribe_voice(bytes(voice_bytes), mime_type=mime_type)
+
+        if not transcribed_text:
+            await status_msg.edit_text(
+                "⚠️ <i>క్షమించండి, మీ వాయిస్ సందేశం స్పష్టంగా వినిపించలేదు. దయచేసి మళ్లీ రికార్డ్ చేసి పంపండి లేదా టైప్ చేయండి.</i>",
+                parse_mode=ParseMode.HTML,
+            )
+            return
+
+        # Update status
+        await status_msg.edit_text(
+            f"🎙 <b>మీరు అడిగిన ప్రశ్న (గుర్తించబడింది):</b>\n<i>\"{html.escape(transcribed_text)}\"</i>\n\n"
+            "🔍 <i>పథకాల సమాచారాన్ని విశ్లేషిస్తున్నాను...</i>",
+            parse_mode=ParseMode.HTML,
+        )
+
+        # Process the transcribed text
+        result = await analyze_citizen_query(transcribed_text)
+        matched = result.get("matched_schemes", [])
+
+        if matched:
+            top_scheme = matched[0][0]
+            reply_markup = build_scheme_actions_keyboard(top_scheme, matched)
+        else:
+            reply_markup = InlineKeyboardMarkup([
+                [InlineKeyboardButton("📋 వర్గాల వారీగా చూడండి", callback_data="nav:categories")],
+                [InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard")],
+            ])
+
+        response_header = (
+            f"🎙 <b>మీ వాయిస్ ప్రశ్న (Voice Query):</b>\n"
+            f"<i>\"{html.escape(transcribed_text)}\"</i>\n\n"
+        )
+        final_text = response_header + result["text"]
+
+        if len(final_text) > 4000:
+            final_text = final_text[:3990] + "..."
+
+        try:
+            await message.reply_text(
+                text=final_text,
+                reply_markup=reply_markup,
+                parse_mode=ParseMode.HTML,
+                disable_web_page_preview=True,
+            )
+        except Exception:
+            await message.reply_text(
+                text=final_text,
+                reply_markup=reply_markup,
+                disable_web_page_preview=True,
+            )
+
+        # Clean up interim status message
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+    except Exception as e:
+        config.logger.error(f"Error handling voice message: {e}", exc_info=True)
+        await status_msg.edit_text(
+            "⚠️ <i>వాయిస్ సందేశాన్ని ప్రాసెస్ చేయడంలో సాంకేతిక సమస్య ఏర్పడింది. దయచేసి టైప్ చేసి పంపండి.</i>",
+            parse_mode=ParseMode.HTML,
+        )

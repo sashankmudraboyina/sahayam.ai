@@ -53,16 +53,47 @@ def _get_gemini_client():
 
 def markdown_to_telegram_html(text: str) -> str:
     """Converts basic markdown bold/italic/code syntax into Telegram-safe HTML."""
-    # Convert code blocks
     text = re.sub(r"```(.*?)```", r"<code>\1</code>", text, flags=re.DOTALL)
     text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
-    # Convert bold
     text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
-    # Convert headers (### Header -> <b>Header</b>)
     text = re.sub(r"^#{1,6}\s*(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
-    # Convert bullets * or - to bullet symbol
     text = re.sub(r"^\s*[\*\-]\s+", "• ", text, flags=re.MULTILINE)
     return text
+
+
+def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Optional[str]:
+    """Transcribes citizen voice message (Telugu/English speech) using Gemini audio capabilities."""
+    client = _get_gemini_client()
+    if not client:
+        return None
+
+    try:
+        from google.genai import types
+        part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+        prompt = (
+            "You are a helpful speech-to-text transcriber for Telugu citizens. "
+            "Listen to this audio carefully. It contains speech in Telugu (or mixed Telugu-English). "
+            "Transcribe the spoken words accurately into clean Telugu script. "
+            "Return ONLY the transcribed text. Do not add notes, quotes, or explanations."
+        )
+
+        for model_name in MODELS_TO_TRY:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=[part, prompt],
+                )
+                if response and response.text:
+                    cleaned = response.text.strip().strip('"').strip("'")
+                    logger.info(f"Voice transcribed successfully via {model_name}: {cleaned}")
+                    return cleaned
+            except Exception as e:
+                logger.warning(f"Voice transcription failed on {model_name}: {e}")
+                continue
+    except Exception as e:
+        logger.error(f"Error in transcribe_voice: {e}")
+
+    return None
 
 
 async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
@@ -74,7 +105,6 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
 
     # If Gemini is configured, use it for conversational synthesis
     if client:
-        # Build context with top 5 relevant schemes or all if few
         context_schemes = [m[0] for m in matched_results[:5]] if matched_results else SCHEMES[:5]
         prompt = (
             f"పౌరుడి ప్రశ్న / పరిస్థితి:\n\"{user_text}\"\n\n"
