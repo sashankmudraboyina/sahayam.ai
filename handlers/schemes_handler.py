@@ -8,6 +8,7 @@ from telegram.ext import ContextTypes
 import config
 from data.schemes import SCHEMES, get_all_categories, get_scheme_by_id
 from services.ai_engine import analyze_citizen_query, transcribe_voice
+from services.html_sanitizer import prepare_telegram_message, strip_html_tags
 from services.matcher import format_scheme_detailed_telugu
 
 
@@ -39,6 +40,46 @@ def build_scheme_actions_keyboard(scheme: dict, matched_schemes: list = None) ->
     return InlineKeyboardMarkup(buttons)
 
 
+async def safe_reply_text(target_msg, text: str, reply_markup=None, disable_web_page_preview: bool = True):
+    """Sends message with sanitized HTML; falls back to stripped plain text if Telegram parser errors."""
+    safe_html = prepare_telegram_message(text)
+    try:
+        return await target_msg.reply_text(
+            text=safe_html,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=disable_web_page_preview,
+        )
+    except Exception as e:
+        config.logger.warning(f"HTML render failed ({e}). Falling back to clean stripped plain text.")
+        clean_text = strip_html_tags(text)
+        return await target_msg.reply_text(
+            text=clean_text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview,
+        )
+
+
+async def safe_edit_text(query_msg, text: str, reply_markup=None, disable_web_page_preview: bool = True):
+    """Edits message with sanitized HTML; falls back to stripped plain text if Telegram parser errors."""
+    safe_html = prepare_telegram_message(text)
+    try:
+        return await query_msg.edit_text(
+            text=safe_html,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=disable_web_page_preview,
+        )
+    except Exception as e:
+        config.logger.warning(f"HTML edit failed ({e}). Falling back to clean stripped plain text.")
+        clean_text = strip_html_tags(text)
+        return await query_msg.edit_text(
+            text=clean_text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=disable_web_page_preview,
+        )
+
+
 async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Handles natural language messages in Telugu or English."""
     if not update.message or not update.message.text:
@@ -65,24 +106,12 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
             [InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard")],
         ])
 
-    # Telegram limit safety
-    msg_text = result["text"]
-    if len(msg_text) > 4000:
-        msg_text = msg_text[:3990] + "..."
-
-    try:
-        await update.message.reply_text(
-            text=msg_text,
-            reply_markup=reply_markup,
-            parse_mode=ParseMode.HTML,
-            disable_web_page_preview=True,
-        )
-    except Exception:
-        await update.message.reply_text(
-            text=msg_text,
-            reply_markup=reply_markup,
-            disable_web_page_preview=True,
-        )
+    await safe_reply_text(
+        update.message,
+        text=result["text"],
+        reply_markup=reply_markup,
+        disable_web_page_preview=True,
+    )
 
 
 async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -103,10 +132,10 @@ async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
     markup = build_scheme_actions_keyboard(scheme)
 
     if query.message:
-        await query.message.reply_text(
+        await safe_reply_text(
+            query.message,
             text=text,
             reply_markup=markup,
-            parse_mode=ParseMode.HTML,
             disable_web_page_preview=True,
         )
 
@@ -133,7 +162,7 @@ async def scheme_documents_callback(update: Update, context: ContextTypes.DEFAUL
 
     await query.answer()
     if query.message:
-        await query.message.reply_text(msg, parse_mode=ParseMode.HTML)
+        await safe_reply_text(query.message, text=msg)
 
 
 async def categories_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -157,7 +186,7 @@ async def categories_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     )
 
     if query.message:
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        await safe_edit_text(query.message, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
 
 
 async def category_browse_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -184,7 +213,7 @@ async def category_browse_callback(update: Update, context: ContextTypes.DEFAULT
         markup = InlineKeyboardMarkup(keyboard)
 
     if query.message:
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        await safe_edit_text(query.message, text=text, reply_markup=markup)
 
 
 async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -245,22 +274,12 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         final_text = response_header + result["text"]
 
-        if len(final_text) > 4000:
-            final_text = final_text[:3990] + "..."
-
-        try:
-            await message.reply_text(
-                text=final_text,
-                reply_markup=reply_markup,
-                parse_mode=ParseMode.HTML,
-                disable_web_page_preview=True,
-            )
-        except Exception:
-            await message.reply_text(
-                text=final_text,
-                reply_markup=reply_markup,
-                disable_web_page_preview=True,
-            )
+        await safe_reply_text(
+            message,
+            text=final_text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
 
         # Clean up interim status message
         try:

@@ -7,6 +7,7 @@ import re
 from typing import Any, Dict, List, Optional
 from data.schemes import SCHEMES
 from services.matcher import format_scheme_detailed_telugu, match_schemes
+from services.html_sanitizer import prepare_telegram_message
 
 logger = logging.getLogger("telegram_bot.ai_engine")
 
@@ -123,7 +124,7 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
                     config={"system_instruction": SYSTEM_INSTRUCTION},
                 )
                 if response and response.text:
-                    formatted_text = markdown_to_telegram_html(response.text)
+                    formatted_text = prepare_telegram_message(markdown_to_telegram_html(response.text))
                     return {
                         "mode": "ai",
                         "model": model_name,
@@ -167,6 +168,6 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
 
     return {
         "mode": "deterministic",
-        "text": formatted_response,
+        "text": prepare_telegram_message(formatted_response),
         "matched_schemes": matched_results,
     }

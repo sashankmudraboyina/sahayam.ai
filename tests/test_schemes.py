@@ -76,6 +76,26 @@ class TestTeluguSchemePlatform(unittest.TestCase):
         for cat in cats:
             self.assertTrue(any(s["category"] == cat["key"] for s in SCHEMES))
 
+    def test_html_sanitizer(self):
+        from services.html_sanitizer import (
+            clean_telegram_html,
+            balance_telegram_tags,
+            strip_html_tags,
+            prepare_telegram_message,
+        )
+        raw = "<h3>శీర్షిక</h3><p>రైతులకు & ప్రజలకు <b>సహాయం<br>వివరాలు: <i>ముఖ్యమైనవి"
+        cleaned = prepare_telegram_message(raw)
+        # Should convert h3 to bold, escape ampersands, and close unclosed tags
+        self.assertIn("<b>శీర్షిక</b>", cleaned)
+        self.assertIn("&amp;", cleaned)
+        self.assertTrue(cleaned.endswith("</i>") or "</i>" in cleaned)
+
+        # Plain text stripped version must not have any < or >
+        stripped = strip_html_tags(cleaned)
+        self.assertNotIn("<", stripped)
+        self.assertNotIn(">", stripped)
+        self.assertIn("రైతులకు & ప్రజలకు సహాయం", stripped)
+
 
 if __name__ == "__main__":
     unittest.main()

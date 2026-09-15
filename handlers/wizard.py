@@ -5,7 +5,7 @@ from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 from data.schemes import SCHEMES
-from handlers.schemes_handler import build_scheme_actions_keyboard
+from handlers.schemes_handler import build_scheme_actions_keyboard, safe_edit_text
 from services.matcher import format_scheme_detailed_telugu
 
 
@@ -43,9 +43,9 @@ async def start_wizard_callback(update: Update, context: ContextTypes.DEFAULT_TY
 
     markup = InlineKeyboardMarkup(keyboard)
     if query and query.message:
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        await safe_edit_text(query.message, text=text, reply_markup=markup)
     elif update.message:
-        await update.message.reply_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
 async def wizard_category_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -79,7 +79,7 @@ async def wizard_category_selected(update: Update, context: ContextTypes.DEFAULT
                 InlineKeyboardButton("⬅️ వెనుకకు", callback_data="nav:wizard"),
             ],
         ]
-        await query.message.edit_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode=ParseMode.HTML)
+        await safe_edit_text(query.message, text=text, reply_markup=InlineKeyboardMarkup(keyboard))
         return
 
     # For other categories, show matched schemes directly
@@ -92,9 +92,9 @@ async def wizard_category_selected(update: Update, context: ContextTypes.DEFAULT
         )
         matched_tuples = [(s, 10.0, s.get("qualify_reason_te", "")) for s in matching]
         markup = build_scheme_actions_keyboard(top_s, matched_tuples)
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
     else:
-        await query.message.edit_text("సమాచారం లభించలేదు.", parse_mode=ParseMode.HTML)
+        await safe_edit_text(query.message, text="సమాచారం లభించలేదు.")
 
 
 async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -124,7 +124,7 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             f"═════════════════════════════"
         )
         markup = build_scheme_actions_keyboard(pm_kisan, all_matches)
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
 
     elif land_type == "tenant":
         rythu_bharosa = [s for s in SCHEMES if s["id"] == "rythu_bharosa"][0]
@@ -139,7 +139,7 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             f"═════════════════════════════"
         )
         markup = build_scheme_actions_keyboard(rythu_bharosa, all_matches)
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
 
     else:
         # > 5 acres
@@ -154,4 +154,4 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             f"{format_scheme_detailed_telugu(free_power, reason)}"
         )
         markup = build_scheme_actions_keyboard(free_power, all_matches)
-        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML, disable_web_page_preview=True)
+        await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
