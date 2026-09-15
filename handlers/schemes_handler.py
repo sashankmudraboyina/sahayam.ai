@@ -2,6 +2,7 @@
 
 import html
 import io
+import time
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction, ParseMode
 from telegram.ext import ContextTypes
@@ -19,6 +20,7 @@ def build_scheme_actions_keyboard(
     matched_schemes: list = None,
     dynamic_urls: list = None,
     is_detail_view: bool = False,
+    include_voice_btn: bool = True,
 ) -> InlineKeyboardMarkup:
     """Builds interactive action buttons with dynamic official links and 'Know More' buttons."""
     buttons = []
@@ -33,9 +35,10 @@ def build_scheme_actions_keyboard(
             ])
 
         # Priority 2: Voice audio listening button
-        buttons.append([
-            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
-        ])
+        if include_voice_btn:
+            buttons.append([
+                InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+            ])
 
         # Quick navigation to other matched schemes
         if matched_schemes and len(matched_schemes) > 1:
@@ -70,9 +73,10 @@ def build_scheme_actions_keyboard(
             if url_row:
                 buttons.append(url_row)
 
-        buttons.append([
-            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
-        ])
+        if include_voice_btn:
+            buttons.append([
+                InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+            ])
 
     # Case 3: Single scheme view
     else:
@@ -89,9 +93,10 @@ def build_scheme_actions_keyboard(
                 InlineKeyboardButton("📄 కావలసిన పత్రాలు", callback_data=f"doc:{scheme['id']}"),
             ])
 
-        buttons.append([
-            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
-        ])
+        if include_voice_btn:
+            buttons.append([
+                InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+            ])
 
     # Universal navigation footer
     buttons.append([
@@ -159,10 +164,38 @@ async def send_voice_response(
     context: ContextTypes.DEFAULT_TYPE,
     reply_to_message_id: int = None,
 ) -> bool:
-    """Synthesizes Telugu speech and sends voice message to citizen."""
+    """Synthesizes Telugu speech and sends voice message to citizen with deduplication & concurrency locks."""
+    # Prevent concurrent voice syntheses for the same user
+    if context.user_data.get("is_synthesizing_voice"):
+        config.logger.info("Voice synthesis already in progress for this user. Skipping duplicate request.")
+        return False
+
+    # Prevent sending the exact same audio note multiple times within 20 seconds
+    now = time.time()
+    text_hash = hash(text)
+    last_sent_hash = context.user_data.get("last_voice_sent_hash")
+    last_sent_time = context.user_data.get("last_voice_sent_time", 0)
+
+    if last_sent_hash == text_hash and (now - last_sent_time) < 20:
+        config.logger.info("Voice response for this text was already sent recently (<20s). Suppressing duplicate.")
+        return True
+
+    context.user_data["is_synthesizing_voice"] = True
     try:
         await context.bot.send_chat_action(chat_id=chat_id, action=ChatAction.RECORD_VOICE)
-        audio_data = await generate_telugu_speech(text)
+
+        # Check in-memory cache for this text
+        cached = context.user_data.get("cached_voice")
+        if cached and cached.get("text_hash") == text_hash:
+            audio_data = cached.get("audio_data")
+        else:
+            audio_data = await generate_telugu_speech(text)
+            if audio_data:
+                context.user_data["cached_voice"] = {
+                    "text_hash": text_hash,
+                    "audio_data": audio_data,
+                }
+
         if audio_data:
             voice_file = io.BytesIO(audio_data)
             voice_file.name = "sahayam_telugu_voice.mp3"
@@ -173,6 +206,8 @@ async def send_voice_response(
                 parse_mode=ParseMode.HTML,
                 reply_to_message_id=reply_to_message_id,
             )
+            context.user_data["last_voice_sent_hash"] = text_hash
+            context.user_data["last_voice_sent_time"] = time.time()
             return True
         else:
             config.logger.warning("generate_telugu_speech returned empty audio.")
@@ -180,6 +215,8 @@ async def send_voice_response(
     except Exception as e:
         config.logger.error(f"Error sending voice response: {e}", exc_info=True)
         return False
+    finally:
+        context.user_data["is_synthesizing_voice"] = False
 
 
 async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -406,6 +443,7 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
             matched_schemes=matched,
             dynamic_urls=dynamic_urls,
             is_detail_view=(len(matched) == 1),
+            include_voice_btn=False,  # Audio note is already sent below; omit redundant button
         )
 
         response_header = (
@@ -454,8 +492,10 @@ async def speak_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYP
     if not query:
         return
 
-    await query.answer("🔊 ఆడియో రూపొందిస్తున్నాము... కాసేపు వేచి ఉండండి.")
-    chat_id = update.effective_chat.id if update.effective_chat else query.message.chat_id
+    # If voice synthesis is already in progress, notify user politely without re-triggering
+    if context.user_data.get("is_synthesizing_voice"):
+        await query.answer("🔊 వాయిస్ సిద్ధమవుతోంది, ఒక్క క్షణం వేచి ఉండండి...", show_alert=False)
+        return
 
     # Retrieve last response text from user session or query message
     last_text = context.user_data.get("last_response_text")
@@ -463,9 +503,17 @@ async def speak_voice_callback(update: Update, context: ContextTypes.DEFAULT_TYP
         last_text = query.message.text
 
     if not last_text:
-        if query.message:
-            await query.message.reply_text("క్షమించండి, వాయిస్ రూపొందించడానికి సమాచారం లేదు. దయచేసి ఒక పథకం లేదా ప్రశ్నను అడగండి.")
+        await query.answer("సమాచారం లేదు.", show_alert=True)
         return
+
+    # Check if this exact audio was already sent in the last 20 seconds
+    now = time.time()
+    if context.user_data.get("last_voice_sent_hash") == hash(last_text) and (now - context.user_data.get("last_voice_sent_time", 0)) < 20:
+        await query.answer("🔊 వాయిస్ సమాధానం ఇప్పటికే పైన పంపబడింది 👆", show_alert=False)
+        return
+
+    await query.answer("🔊 ఆడియో రూపొందిస్తున్నాము... కాసేపు వేచి ఉండండి.")
+    chat_id = update.effective_chat.id if update.effective_chat else query.message.chat_id
 
     success = await send_voice_response(chat_id, last_text, context)
     if not success and query.message:

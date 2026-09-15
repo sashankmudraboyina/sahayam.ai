@@ -10,23 +10,35 @@ from services.html_sanitizer import strip_html_tags
 logger = logging.getLogger("telegram_bot.tts")
 
 
-def prepare_text_for_speech(text: str, max_chars: int = 700) -> str:
+def prepare_text_for_speech(text: str, max_chars: int = 3000) -> str:
     """Prepares text for natural, pleasant speech by removing HTML, URLs, and formatting markers."""
     clean = strip_html_tags(text)
     # Remove web URLs so the TTS engine doesn't read out raw letters
     clean = re.sub(r"https?://\S+", "", clean)
+    # Convert numbered items like "1. ", "2. " into clean speech pauses
+    clean = re.sub(r"(\d+)\.\s*", r"\1: ", clean)
     # Remove decorative/bullet characters
-    clean = re.sub(r"[•\*\#\=\-\_]", " ", clean)
+    clean = re.sub(r"[•\*\#\=\-\_~|]", " ", clean)
     # Collapse multiple whitespace
     clean = re.sub(r"\s+", " ", clean).strip()
 
     if len(clean) > max_chars:
         cut = clean[:max_chars]
-        last_punct = max(cut.rfind("."), cut.rfind("।"), cut.rfind("!"), cut.rfind("?"))
-        if last_punct > max_chars // 2:
+        last_punct = max(
+            cut.rfind("."),
+            cut.rfind("।"),
+            cut.rfind("!"),
+            cut.rfind("?"),
+            cut.rfind("\n"),
+        )
+        if last_punct > int(max_chars * 0.7):
             clean = cut[:last_punct + 1]
         else:
-            clean = cut + "..."
+            last_space = cut.rfind(" ")
+            if last_space > int(max_chars * 0.8):
+                clean = cut[:last_space] + "."
+            else:
+                clean = cut + "..."
 
     return clean
 
