@@ -7,6 +7,7 @@ from telegram.ext import ContextTypes
 from handlers.schemes_handler import (
     category_browse_callback,
     categories_callback,
+    reset_chat_command,
     scheme_detail_callback,
     scheme_documents_callback,
 )
@@ -84,6 +85,9 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
                 "✍️ <i>దయచేసి మీ పరిస్థితి లేదా ప్రశ్నను ఇక్కడ తెలుగులో టైప్ చేసి పంపండి. నేను తక్షణమే సమాధానం ఇస్తాను!</i>",
                 parse_mode=ParseMode.HTML,
             )
+
+    elif data == "nav:reset_chat":
+        await reset_chat_command(update, context)
 
     elif data.startswith("wiz:cat:"):
         await wizard_category_selected(update, context)

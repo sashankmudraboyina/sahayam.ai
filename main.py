@@ -21,6 +21,7 @@ from handlers.schemes_handler import (
     categories_callback,
     handle_citizen_message,
     handle_citizen_voice,
+    reset_chat_command,
 )
 from handlers.start import help_command, start_command
 from handlers.wizard import start_wizard_callback
@@ -56,6 +57,7 @@ async def post_init(application: Application) -> None:
         BotCommand("start", "ముఖ్య మెనూ ప్రారంభించండి (Main Menu)"),
         BotCommand("wizard", "అర్హత చెకర్ - దశలవారీగా (Eligibility Wizard)"),
         BotCommand("schemes", "పథకాల విభాగాలు చూడండి (Browse Categories)"),
+        BotCommand("reset", "కొత్త సంభాషణ ప్రారంభించండి (Reset Chat)"),
         BotCommand("help", "సహాయం మరియు వినియోగ గైడ్ (Help Guide)"),
     ]
     try:
@@ -81,6 +83,8 @@ def main() -> None:
     # 1. Core Commands
     application.add_handler(CommandHandler("start", start_command))
     application.add_handler(CommandHandler("help", help_command))
+    application.add_handler(CommandHandler("reset", reset_chat_command))
+    application.add_handler(CommandHandler("new", reset_chat_command))
     application.add_handler(CommandHandler("wizard", start_wizard_callback))
     application.add_handler(CommandHandler("schemes", categories_callback))
 

@@ -43,7 +43,8 @@ def build_scheme_actions_keyboard(scheme: dict = None, matched_schemes: list = N
 
     buttons.append([
         InlineKeyboardButton("📋 అన్ని విభాగాలు", callback_data="nav:categories"),
-        InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard"),
+        InlineKeyboardButton("🎯 అర్హత చెకర్", callback_data="nav:wizard"),
+        InlineKeyboardButton("🔄 కొత్త చాట్ (Reset)", callback_data="nav:reset_chat"),
     ])
 
     return InlineKeyboardMarkup(buttons)
@@ -102,10 +103,18 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     if update.effective_chat:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-    # Analyze citizen query using AI Engine & Matcher
-    result = await analyze_citizen_query(user_text)
+    # Retrieve conversation history
+    history = context.user_data.get("conversation_history", [])
+
+    # Analyze citizen query using AI Engine & Matcher with conversation history
+    result = await analyze_citizen_query(user_text, conversation_history=history)
     matched = result.get("matched_schemes", [])
     dynamic_urls = result.get("dynamic_urls", [])
+
+    # Update conversation history
+    history.append({"role": "user", "text": user_text})
+    history.append({"role": "model", "text": strip_html_tags(result["text"])})
+    context.user_data["conversation_history"] = history[-10:]
 
     top_scheme = matched[0][0] if matched else None
     reply_markup = build_scheme_actions_keyboard(
@@ -267,10 +276,18 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
             parse_mode=ParseMode.HTML,
         )
 
-        # Process the transcribed text
-        result = await analyze_citizen_query(transcribed_text)
+        # Retrieve conversation history
+        history = context.user_data.get("conversation_history", [])
+
+        # Process the transcribed text with history
+        result = await analyze_citizen_query(transcribed_text, conversation_history=history)
         matched = result.get("matched_schemes", [])
         dynamic_urls = result.get("dynamic_urls", [])
+
+        # Update conversation history
+        history.append({"role": "user", "text": transcribed_text})
+        history.append({"role": "model", "text": strip_html_tags(result["text"])})
+        context.user_data["conversation_history"] = history[-10:]
 
         top_scheme = matched[0][0] if matched else None
         reply_markup = build_scheme_actions_keyboard(
@@ -308,3 +325,18 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
             "⚠️ <i>వాయిస్ సందేశాన్ని ప్రాసెస్ చేయడంలో సాంకేతిక సమస్య ఏర్పడింది. దయచేసి టైప్ చేసి పంపండి.</i>",
             parse_mode=ParseMode.HTML,
         )
+
+
+async def reset_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Clears conversation history and resets chat context."""
+    context.user_data["conversation_history"] = []
+    msg = (
+        "🔄 <b>సంభాషణ క్లియర్ చేయబడింది!</b>\n\n"
+        "మీరు కొత్త ప్రశ్న లేదా కొత్త పథకం గురించి అడగవచ్చు.\n"
+        "మీ పరిస్థితిని సాధారణ తెలుగులో టైప్ చేయండి లేదా వాయిస్ మెసేజ్ పంపండి."
+    )
+    if update.message:
+        await safe_reply_text(update.message, text=msg)
+    elif update.callback_query and update.callback_query.message:
+        await update.callback_query.answer("సంభాషణ రీసెట్ చేయబడింది.")
+        await safe_reply_text(update.callback_query.message, text=msg)

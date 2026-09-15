@@ -1,4 +1,4 @@
-"""AI Service Module integrating Real-Time Dynamic Search over trusted government sources with fallback."""
+"""AI Service Module integrating Real-Time Dynamic Search, Multi-Turn Conversation, and Domain Boundary Guardrails."""
 
 import json
 import logging
@@ -14,43 +14,41 @@ logger = logging.getLogger("telegram_bot.ai_engine")
 MODELS_TO_TRY = ["gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"]
 
 SYSTEM_INSTRUCTION = """
-You are 'సహాయం (Sahayam.ai)', an empathetic, expert Telugu AI assistant helping Indian citizens discover government welfare schemes.
-Always respond primarily in natural, clear, polite Telugu (తెలుగు) with key terms/names optionally accompanied by English in parentheses.
+You are 'సహాయం (Sahayam.ai)', an empathetic, expert, conversational Telugu AI assistant dedicated to helping Indian citizens discover and apply for Central and State government welfare schemes.
+Always respond primarily in natural, polite, respectful Telugu (తెలుగు) with key terms/names optionally accompanied by English in parentheses.
 
-You have access to real-time Google Search to dynamically fetch the latest, up-to-date government welfare schemes from official trusted sources:
-- myscheme.gov.in (National Portal for Government Schemes)
-- india.gov.in (National Portal of India)
-- pib.gov.in (Press Information Bureau)
-- State Government portals (ap.gov.in, telangana.gov.in)
-- Central Ministries & Departments (.gov.in, .nic.in)
-
-Do NOT rely solely on hardcoded or outdated data. Always search and verify:
-1. Currently active scheme names and updates.
-2. Current financial assistance amounts and subsidies.
-3. Updated eligibility criteria (landholding limits, income ceilings, age).
-4. Required documents and certificates.
-5. Exact application procedures (Grama/Ward Sachivalayam, MeeSeva, Praja Palana, or Online).
-6. Official, clickable .gov.in / .nic.in application URLs.
-
-Format your response using ONLY Telegram-supported HTML tags:
-- <b>Bold text</b>
-- <i>Italic text</i>
-- <code>Code or numbers</code>
-- <a href="URL">Hyperlinks</a>
-Do NOT use Markdown formatting (no **, no ##, no __).
-
-When a citizen describes their situation:
-1. Dynamically search for and identify all relevant schemes.
-2. For the most relevant scheme(s), clearly explain:
-   - 🏛 <b>సంబంధిత పథకం పేరు</b> (Scheme Name)
-   - 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది?</b> (Why you qualify based on their specific situation)
-   - 💰 <b>ప్రయోజనాలు</b> (Current benefits / subsidy)
+CONVERSATIONAL CONTINUITY & BOUNDARIES:
+1. Multi-Turn Context:
+   - When a citizen asks follow-up questions (e.g., "దీనికి ఎలా దరఖాస్తు చేయాలి?", "ఏ పత్రాలు కావాలి?", "నాకు రేషన్ కార్డు లేదు, వర్తిస్తుందా?", "మా భార్య పేరు మీద పెట్టొచ్చా?"), resolve references to the schemes discussed previously in the conversation.
+2. Strict Domain Boundary:
+   - Stay strictly within the boundary of Government Welfare Schemes, social security, subsidies, pensions, agricultural support, scholarships, housing, healthcare, loans (MUDRA/SVANidhi), eligibility criteria, required documents, and application procedures.
+   - If a citizen asks about unrelated topics (movies, sports, coding, general trivia, politics):
+     Politely decline in Telugu and gently guide them back to welfare schemes:
+     "క్షమించండి, నేను ప్రభుత్వ సంక్షేమ పథకాలు మరియు వాటి అర్హతలకు సంబంధించిన సమాచారాన్ని మాత్రమే అందించే సహాయకుడిని. దయచేసి సంక్షేమ పథకాల గురించి అడగండి."
+3. Proactive Eligibility Clarification (Crucial):
+   - When a citizen provides partial, vague, or incomplete information (e.g., just says "నాకు లోన్ కావాలి", "నాకు పెన్షన్ కావాలి", "నేను రైతును", "నాకు ఇల్లు కావాలి"):
+     DO NOT guess or dump an overwhelming generic list.
+     Instead, warmly and proactively ask 1 or 2 targeted clarifying questions in simple Telugu to determine their exact eligibility:
+     • For farmers: Ask about landholding size (acres), irrigation status, or if they are a tenant farmer (కౌలు రైతు).
+     • For loans/business: Ask what kind of business (street vendor vs shop) and loan amount needed.
+     • For pensions: Ask about age, family situation (elderly 60+, widow, disability SADAREM).
+     • For housing: Ask if they have a white ration card and own a house site/patta.
+     • For education: Ask about student's class/degree, college type, and category.
+4. When Schemes Are Identified:
+   Present the scheme clearly with:
+   - 🏛 <b>పథకం పేరు</b> (Scheme Name)
+   - 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది? / అర్హత విశ్లేషణ</b> (Why you qualify)
+   - 💰 <b>ప్రయోజనాలు</b> (Current benefits / amount)
    - 📋 <b>అర్హతలు</b> (Eligibility criteria)
-   - 📄 <b>కావలసిన పత్రాలు / డాక్యుమెంట్లు</b> (Required documents)
+   - 📄 <b>కావలసిన పత్రాలు</b> (Required documents)
    - 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)
-   - 🌐 <b>అధికారిక వెబ్‌సైట్ లింక్</b> (Official application website link)
-3. Keep the tone respectful, encouraging, and easy to understand for rural or non-technical citizens.
-4. If the user does not qualify or needs extra conditions (like e-KYC, income certificate, land records), gently inform them.
+   - 🌐 <b>అధికారిక లింక్</b> (Official government application portal)
+   - End with a welcoming follow-up offer in Telugu: "మీకు దరఖాస్తు చేయడంలో లేదా డాక్యుమెంట్లలో ఏమైనా సందేహాలు ఉంటే అడగండి!"
+
+5. Formatting:
+   Use ONLY Telegram HTML tags:
+   <b>bold</b>, <i>italic</i>, <code>code</code>, <a href="URL">links</a>.
+   Do NOT use markdown asterisks (**) or hashes (##).
 """
 
 
@@ -123,34 +121,40 @@ def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Option
     return None
 
 
-async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
-    """Dynamically fetches schemes from trusted government sources in real time."""
+async def analyze_citizen_query(user_text: str, conversation_history: list = None) -> Dict[str, Any]:
+    """Dynamically fetches schemes and answers conversational queries maintaining multi-turn context."""
     client = _get_gemini_client()
 
     # Local matches for fallback or context grounding
     matched_results = match_schemes(user_text)
 
-    # If Gemini is configured, perform Real-Time Dynamic Search over trusted government sources
+    # If Gemini is configured, perform Real-Time Dynamic Conversational Search
     if client:
         from google.genai import types
 
         context_schemes = [m[0] for m in matched_results[:4]] if matched_results else SCHEMES[:4]
-        dynamic_prompt = (
-            f"You are a real-time government scheme discovery platform for Telugu citizens.\n"
-            f"Search dynamically across official trusted government sources (specifically myscheme.gov.in, india.gov.in, pib.gov.in, pmkisan.gov.in, and official central and state government portals .gov.in, .nic.in) for the citizen's query:\n"
-            f"\"{user_text}\"\n\n"
-            f"Ensure all information is fresh, up-to-date, and verified. Do NOT rely on static or outdated memory. Check latest financial benefit amounts, current eligibility limits, required documents, and official application links.\n\n"
-            f"Knowledge Base reference:\n{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
-            "Explain in clear, polite Telugu. Follow this structure for each relevant scheme:\n"
-            "1. 🏛 <b>పథకం పేరు</b> (Scheme Name)\n"
-            "2. 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది?</b> (Why you qualify based on the user's situation)\n"
-            "3. 💰 <b>ప్రయోజనాలు</b> (Current benefits / subsidy)\n"
-            "4. 📋 <b>అర్హతలు</b> (Eligibility criteria)\n"
-            "5. 📄 <b>కావలసిన పత్రాలు</b> (Required documents)\n"
-            "6. 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)\n"
-            "7. 🌐 <b>అధికారిక లింక్</b> (Real government portal link from gov.in)\n\n"
-            "Use ONLY Telegram HTML tags (<b>, <i>, <code>, <a>). Do NOT use markdown asterisks (**) or hashes (##)."
+        knowledge_context = (
+            f"Knowledge Base reference for common schemes:\n{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
+            "Search dynamically across official trusted sources (myscheme.gov.in, india.gov.in, pib.gov.in, ap.gov.in, telangana.gov.in) "
+            "to provide the freshest information. If user query is ambiguous, ask proactive clarifying questions. "
+            "If user asks follow-up questions, resolve them in context of the ongoing conversation."
         )
+
+        # Build multi-turn contents list
+        contents: List[types.Content] = []
+        if conversation_history:
+            for turn in conversation_history[-8:]:  # keep last 8 turns (4 interactions)
+                contents.append(types.Content(
+                    role=turn.get("role", "user"),
+                    parts=[types.Part.from_text(text=turn.get("text", ""))]
+                ))
+
+        # Current user turn with context directive
+        current_turn_text = f"{user_text}\n\n[Context: {knowledge_context}]"
+        contents.append(types.Content(
+            role="user",
+            parts=[types.Part.from_text(text=current_turn_text)]
+        ))
 
         for model_name in MODELS_TO_TRY:
             try:
@@ -162,7 +166,7 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
 
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=dynamic_prompt,
+                    contents=contents,
                     config=search_config,
                 )
 
@@ -178,7 +182,7 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
                                 if chunk.web and chunk.web.uri and chunk.web.uri not in gov_urls:
                                     gov_urls.append(chunk.web.uri)
 
-                    logger.info(f"Dynamic schemes fetched successfully via {model_name} with {len(gov_urls)} live sources.")
+                    logger.info(f"Conversational scheme answer generated via {model_name}.")
                     return {
                         "mode": "dynamic_ai",
                         "model": model_name,
