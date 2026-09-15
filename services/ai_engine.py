@@ -1,4 +1,4 @@
-"""AI Service Module integrating Google Gemini with fallback to deterministic matching."""
+"""AI Service Module integrating Real-Time Dynamic Search over trusted government sources with fallback."""
 
 import json
 import logging
@@ -6,8 +6,8 @@ import os
 import re
 from typing import Any, Dict, List, Optional
 from data.schemes import SCHEMES
-from services.matcher import format_scheme_detailed_telugu, match_schemes
 from services.html_sanitizer import prepare_telegram_message
+from services.matcher import format_scheme_detailed_telugu, match_schemes
 
 logger = logging.getLogger("telegram_bot.ai_engine")
 
@@ -17,6 +17,21 @@ SYSTEM_INSTRUCTION = """
 You are 'సహాయం (Sahayam.ai)', an empathetic, expert Telugu AI assistant helping Indian citizens discover government welfare schemes.
 Always respond primarily in natural, clear, polite Telugu (తెలుగు) with key terms/names optionally accompanied by English in parentheses.
 
+You have access to real-time Google Search to dynamically fetch the latest, up-to-date government welfare schemes from official trusted sources:
+- myscheme.gov.in (National Portal for Government Schemes)
+- india.gov.in (National Portal of India)
+- pib.gov.in (Press Information Bureau)
+- State Government portals (ap.gov.in, telangana.gov.in)
+- Central Ministries & Departments (.gov.in, .nic.in)
+
+Do NOT rely solely on hardcoded or outdated data. Always search and verify:
+1. Currently active scheme names and updates.
+2. Current financial assistance amounts and subsidies.
+3. Updated eligibility criteria (landholding limits, income ceilings, age).
+4. Required documents and certificates.
+5. Exact application procedures (Grama/Ward Sachivalayam, MeeSeva, Praja Palana, or Online).
+6. Official, clickable .gov.in / .nic.in application URLs.
+
 Format your response using ONLY Telegram-supported HTML tags:
 - <b>Bold text</b>
 - <i>Italic text</i>
@@ -24,12 +39,12 @@ Format your response using ONLY Telegram-supported HTML tags:
 - <a href="URL">Hyperlinks</a>
 Do NOT use Markdown formatting (no **, no ##, no __).
 
-When a citizen describes their situation (e.g. farmer with 2 acres, student needing fees, woman seeking loan):
-1. Identify all relevant Central & State government schemes from the provided knowledge base.
+When a citizen describes their situation:
+1. Dynamically search for and identify all relevant schemes.
 2. For the most relevant scheme(s), clearly explain:
    - 🏛 <b>సంబంధిత పథకం పేరు</b> (Scheme Name)
    - 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది?</b> (Why you qualify based on their specific situation)
-   - 💰 <b>ప్రయోజనాలు</b> (Benefits)
+   - 💰 <b>ప్రయోజనాలు</b> (Current benefits / subsidy)
    - 📋 <b>అర్హతలు</b> (Eligibility criteria)
    - 📄 <b>కావలసిన పత్రాలు / డాక్యుమెంట్లు</b> (Required documents)
    - 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)
@@ -60,6 +75,17 @@ def markdown_to_telegram_html(text: str) -> str:
     text = re.sub(r"^#{1,6}\s*(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
     text = re.sub(r"^\s*[\*\-]\s+", "• ", text, flags=re.MULTILINE)
     return text
+
+
+def extract_dynamic_gov_urls(text: str) -> List[str]:
+    """Extracts valid official government URLs from dynamic search response."""
+    urls = re.findall(r'https?://[^\s"<>\)]+(?:\.gov\.in|\.nic\.in|myscheme\.gov\.in)[^\s"<>\)]*', text)
+    clean_urls = []
+    for u in urls:
+        u = u.rstrip(".,;:'\"")
+        if u not in clean_urls:
+            clean_urls.append(u)
+    return clean_urls
 
 
 def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Optional[str]:
@@ -98,44 +124,73 @@ def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Option
 
 
 async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
-    """Analyzes user query and returns structured scheme discovery results."""
+    """Dynamically fetches schemes from trusted government sources in real time."""
     client = _get_gemini_client()
 
-    # 1. Deterministic match results
+    # Local matches for fallback or context grounding
     matched_results = match_schemes(user_text)
 
-    # If Gemini is configured, use it for conversational synthesis
+    # If Gemini is configured, perform Real-Time Dynamic Search over trusted government sources
     if client:
-        context_schemes = [m[0] for m in matched_results[:5]] if matched_results else SCHEMES[:5]
-        prompt = (
-            f"పౌరుడి ప్రశ్న / పరిస్థితి:\n\"{user_text}\"\n\n"
-            f"అందుబాటులో ఉన్న పథకాల సమాచారం (Knowledge Base):\n"
-            f"{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
-            "దయచేసి పైన పేర్కొన్న ప్రశ్నను పరిశీలించి, సంబంధిత పథకాలను, వాటి ప్రయోజనాలు, అర్హతలు, "
-            "కావలసిన పత్రాలు, దరఖాస్తు విధానం, అధికారిక వెబ్‌సైట్ లింక్ మరియు పౌరుడికి ఎందుకు వర్తిస్తుందో స్పష్టమైన తెలుగులో వివరించండి. "
-            "HTML ట్యాగ్‌లు (<b>, <i>, <code>, <a>) మాత్రమే ఉపయోగించండి."
+        from google.genai import types
+
+        context_schemes = [m[0] for m in matched_results[:4]] if matched_results else SCHEMES[:4]
+        dynamic_prompt = (
+            f"You are a real-time government scheme discovery platform for Telugu citizens.\n"
+            f"Search dynamically across official trusted government sources (specifically myscheme.gov.in, india.gov.in, pib.gov.in, pmkisan.gov.in, and official central and state government portals .gov.in, .nic.in) for the citizen's query:\n"
+            f"\"{user_text}\"\n\n"
+            f"Ensure all information is fresh, up-to-date, and verified. Do NOT rely on static or outdated memory. Check latest financial benefit amounts, current eligibility limits, required documents, and official application links.\n\n"
+            f"Knowledge Base reference:\n{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
+            "Explain in clear, polite Telugu. Follow this structure for each relevant scheme:\n"
+            "1. 🏛 <b>పథకం పేరు</b> (Scheme Name)\n"
+            "2. 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది?</b> (Why you qualify based on the user's situation)\n"
+            "3. 💰 <b>ప్రయోజనాలు</b> (Current benefits / subsidy)\n"
+            "4. 📋 <b>అర్హతలు</b> (Eligibility criteria)\n"
+            "5. 📄 <b>కావలసిన పత్రాలు</b> (Required documents)\n"
+            "6. 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)\n"
+            "7. 🌐 <b>అధికారిక లింక్</b> (Real government portal link from gov.in)\n\n"
+            "Use ONLY Telegram HTML tags (<b>, <i>, <code>, <a>). Do NOT use markdown asterisks (**) or hashes (##)."
         )
 
         for model_name in MODELS_TO_TRY:
             try:
+                # Enable Google Search Grounding for real-time dynamic retrieval
+                search_config = types.GenerateContentConfig(
+                    system_instruction=SYSTEM_INSTRUCTION,
+                    tools=[types.Tool(google_search=types.GoogleSearch())],
+                )
+
                 response = client.models.generate_content(
                     model=model_name,
-                    contents=prompt,
-                    config={"system_instruction": SYSTEM_INSTRUCTION},
+                    contents=dynamic_prompt,
+                    config=search_config,
                 )
+
                 if response and response.text:
                     formatted_text = prepare_telegram_message(markdown_to_telegram_html(response.text))
+                    gov_urls = extract_dynamic_gov_urls(response.text)
+
+                    # Also inspect grounding metadata if available
+                    if response.candidates and response.candidates[0].grounding_metadata:
+                        meta = response.candidates[0].grounding_metadata
+                        if meta.grounding_chunks:
+                            for chunk in meta.grounding_chunks:
+                                if chunk.web and chunk.web.uri and chunk.web.uri not in gov_urls:
+                                    gov_urls.append(chunk.web.uri)
+
+                    logger.info(f"Dynamic schemes fetched successfully via {model_name} with {len(gov_urls)} live sources.")
                     return {
-                        "mode": "ai",
+                        "mode": "dynamic_ai",
                         "model": model_name,
                         "text": formatted_text,
                         "matched_schemes": matched_results,
+                        "dynamic_urls": gov_urls,
                     }
             except Exception as e:
-                logger.warning(f"Model {model_name} failed: {e}. Trying fallback.")
+                logger.warning(f"Dynamic search on {model_name} failed: {e}. Trying next model or fallback.")
                 continue
 
-    # 2. Rule-based intelligent output
+    # 2. Rule-based intelligent fallback output if dynamic search was unavailable
     if not matched_results:
         no_match_text = (
             "🙏 <b>సహాయం (Sahayam.ai)</b>\n\n"
@@ -148,9 +203,9 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
             "mode": "fallback_empty",
             "text": no_match_text,
             "matched_schemes": [],
+            "dynamic_urls": [],
         }
 
-    # Format the top matched scheme and list others
     top_scheme, top_score, top_reason = matched_results[0]
     formatted_response = (
         f"🌾 <b>సహాయం (Sahayam.ai) - సంక్షేమ పథకాల శోధన ఫలితాలు</b>\n\n"
@@ -170,4 +225,5 @@ async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
         "mode": "deterministic",
         "text": prepare_telegram_message(formatted_response),
         "matched_schemes": matched_results,
+        "dynamic_urls": [top_scheme["official_link"]],
     }

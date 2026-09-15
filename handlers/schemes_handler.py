@@ -8,18 +8,27 @@ from telegram.ext import ContextTypes
 import config
 from data.schemes import SCHEMES, get_all_categories, get_scheme_by_id
 from services.ai_engine import analyze_citizen_query, transcribe_voice
-from services.html_sanitizer import prepare_telegram_message, strip_html_tags
+from services.html_sanitizer import prepare_telegram_message, strip_html_tags, split_telegram_message
 from services.matcher import format_scheme_detailed_telugu
 
 
-def build_scheme_actions_keyboard(scheme: dict, matched_schemes: list = None) -> InlineKeyboardMarkup:
-    """Builds interactive action buttons for a scheme."""
-    buttons = [
-        [
+def build_scheme_actions_keyboard(scheme: dict = None, matched_schemes: list = None, dynamic_urls: list = None) -> InlineKeyboardMarkup:
+    """Builds interactive action buttons with dynamic official links."""
+    buttons = []
+
+    # Priority 1: Real-time official government links discovered dynamically
+    if dynamic_urls:
+        url_row = []
+        for u in dynamic_urls[:2]:
+            domain = u.split("//")[-1].split("/")[0].replace("www.", "")
+            url_row.append(InlineKeyboardButton(f"🌐 {domain}", url=u))
+        if url_row:
+            buttons.append(url_row)
+    elif scheme and scheme.get("official_link"):
+        buttons.append([
             InlineKeyboardButton("🌐 దరఖాస్తు వెబ్‌సైట్", url=scheme["official_link"]),
             InlineKeyboardButton("📄 పత్రాల జాబితా", callback_data=f"doc:{scheme['id']}"),
-        ]
-    ]
+        ])
 
     # If other schemes matched, add navigation buttons
     if matched_schemes and len(matched_schemes) > 1:
@@ -34,7 +43,7 @@ def build_scheme_actions_keyboard(scheme: dict, matched_schemes: list = None) ->
 
     buttons.append([
         InlineKeyboardButton("📋 అన్ని విభాగాలు", callback_data="nav:categories"),
-        InlineKeyboardButton("🔍 కొత్త ప్రశ్న", callback_data="nav:help_query"),
+        InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard"),
     ])
 
     return InlineKeyboardMarkup(buttons)
@@ -96,22 +105,25 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     # Analyze citizen query using AI Engine & Matcher
     result = await analyze_citizen_query(user_text)
     matched = result.get("matched_schemes", [])
+    dynamic_urls = result.get("dynamic_urls", [])
 
-    if matched:
-        top_scheme = matched[0][0]
-        reply_markup = build_scheme_actions_keyboard(top_scheme, matched)
-    else:
-        reply_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("📋 వర్గాల వారీగా చూడండి", callback_data="nav:categories")],
-            [InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard")],
-        ])
-
-    await safe_reply_text(
-        update.message,
-        text=result["text"],
-        reply_markup=reply_markup,
-        disable_web_page_preview=True,
+    top_scheme = matched[0][0] if matched else None
+    reply_markup = build_scheme_actions_keyboard(
+        scheme=top_scheme,
+        matched_schemes=matched,
+        dynamic_urls=dynamic_urls,
     )
+
+    chunks = split_telegram_message(result["text"])
+    for i, chunk in enumerate(chunks):
+        is_last = (i == len(chunks) - 1)
+        markup = reply_markup if is_last else None
+        await safe_reply_text(
+            update.message,
+            text=chunk,
+            reply_markup=markup,
+            disable_web_page_preview=True,
+        )
 
 
 async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -258,15 +270,14 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         # Process the transcribed text
         result = await analyze_citizen_query(transcribed_text)
         matched = result.get("matched_schemes", [])
+        dynamic_urls = result.get("dynamic_urls", [])
 
-        if matched:
-            top_scheme = matched[0][0]
-            reply_markup = build_scheme_actions_keyboard(top_scheme, matched)
-        else:
-            reply_markup = InlineKeyboardMarkup([
-                [InlineKeyboardButton("📋 వర్గాల వారీగా చూడండి", callback_data="nav:categories")],
-                [InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard")],
-            ])
+        top_scheme = matched[0][0] if matched else None
+        reply_markup = build_scheme_actions_keyboard(
+            scheme=top_scheme,
+            matched_schemes=matched,
+            dynamic_urls=dynamic_urls,
+        )
 
         response_header = (
             f"🎙 <b>మీ వాయిస్ ప్రశ్న (Voice Query):</b>\n"
@@ -274,12 +285,16 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         )
         final_text = response_header + result["text"]
 
-        await safe_reply_text(
-            message,
-            text=final_text,
-            reply_markup=reply_markup,
-            disable_web_page_preview=True,
-        )
+        chunks = split_telegram_message(final_text)
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            markup = reply_markup if is_last else None
+            await safe_reply_text(
+                message,
+                text=chunk,
+                reply_markup=markup,
+                disable_web_page_preview=True,
+            )
 
         # Clean up interim status message
         try:

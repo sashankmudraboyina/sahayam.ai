@@ -76,13 +76,53 @@ def strip_html_tags(text: str) -> str:
 
 
 def prepare_telegram_message(text: str) -> str:
-    """Full pipeline: cleans, formats, balances, and truncates text for Telegram."""
+    """Full pipeline: cleans, formats, and balances HTML text for Telegram."""
     cleaned = clean_telegram_html(text)
-    balanced = balance_telegram_tags(cleaned)
+    return balance_telegram_tags(cleaned)
 
-    # Truncate to Telegram's 4096 limit safely
-    if len(balanced) > 4000:
-        balanced = balanced[:3990] + "..."
-        balanced = balance_telegram_tags(balanced)
 
-    return balanced
+def split_telegram_message(text: str, max_length: int = 3800) -> list:
+    """Splits a long message into multiple parts at natural paragraph boundaries, balancing tags for each chunk."""
+    if len(text) <= max_length:
+        return [prepare_telegram_message(text)]
+
+    raw_parts = []
+    current_part = []
+    current_length = 0
+
+    paragraphs = text.split("\n\n")
+    for para in paragraphs:
+        para_len = len(para) + 2
+        if current_length + para_len > max_length:
+            if current_part:
+                raw_parts.append("\n\n".join(current_part).strip())
+                current_part = []
+                current_length = 0
+
+            # If a single paragraph is larger than max_length, split by single newlines
+            if len(para) > max_length:
+                lines = para.split("\n")
+                line_part = []
+                line_len = 0
+                for line in lines:
+                    if line_len + len(line) + 1 > max_length:
+                        if line_part:
+                            raw_parts.append("\n".join(line_part).strip())
+                            line_part = []
+                            line_len = 0
+                    line_part.append(line)
+                    line_len += len(line) + 1
+                if line_part:
+                    current_part.append("\n".join(line_part))
+                    current_length = sum(len(p) + 2 for p in current_part)
+            else:
+                current_part.append(para)
+                current_length += para_len
+        else:
+            current_part.append(para)
+            current_length += para_len
+
+    if current_part:
+        raw_parts.append("\n\n".join(current_part).strip())
+
+    return [prepare_telegram_message(part) for part in raw_parts if part.strip()]
