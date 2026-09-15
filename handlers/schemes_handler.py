@@ -69,12 +69,19 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     if len(msg_text) > 4000:
         msg_text = msg_text[:3990] + "..."
 
-    await update.message.reply_text(
-        text=msg_text,
-        reply_markup=reply_markup,
-        parse_mode=ParseMode.HTML,
-        disable_web_page_preview=True,
-    )
+    try:
+        await update.message.reply_text(
+            text=msg_text,
+            reply_markup=reply_markup,
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        await update.message.reply_text(
+            text=msg_text,
+            reply_markup=reply_markup,
+            disable_web_page_preview=True,
+        )
 
 
 async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

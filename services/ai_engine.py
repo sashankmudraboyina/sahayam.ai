@@ -3,26 +3,36 @@
 import json
 import logging
 import os
+import re
 from typing import Any, Dict, List, Optional
 from data.schemes import SCHEMES
 from services.matcher import format_scheme_detailed_telugu, match_schemes
 
 logger = logging.getLogger("telegram_bot.ai_engine")
 
+MODELS_TO_TRY = ["gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"]
+
 SYSTEM_INSTRUCTION = """
 You are 'సహాయం (Sahayam.ai)', an empathetic, expert Telugu AI assistant helping Indian citizens discover government welfare schemes.
 Always respond primarily in natural, clear, polite Telugu (తెలుగు) with key terms/names optionally accompanied by English in parentheses.
 
+Format your response using ONLY Telegram-supported HTML tags:
+- <b>Bold text</b>
+- <i>Italic text</i>
+- <code>Code or numbers</code>
+- <a href="URL">Hyperlinks</a>
+Do NOT use Markdown formatting (no **, no ##, no __).
+
 When a citizen describes their situation (e.g. farmer with 2 acres, student needing fees, woman seeking loan):
 1. Identify all relevant Central & State government schemes from the provided knowledge base.
-2. For each relevant scheme, clearly explain:
-   - సంబంధిత పథకం పేరు (Scheme Name)
-   - మీకు ఎందుకు వర్తిస్తుంది / ఎందుకు అర్హులు (Why you qualify or conditions)
-   - ప్రయోజనాలు (Benefits)
-   - అర్హతలు (Eligibility criteria)
-   - కావలసిన పత్రాలు / డాక్యుమెంట్లు (Required documents)
-   - దరఖాస్తు విధానం (Step-by-step application procedure)
-   - అధికారిక లింక్ (Official application website link)
+2. For the most relevant scheme(s), clearly explain:
+   - 🏛 <b>సంబంధిత పథకం పేరు</b> (Scheme Name)
+   - 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది?</b> (Why you qualify based on their specific situation)
+   - 💰 <b>ప్రయోజనాలు</b> (Benefits)
+   - 📋 <b>అర్హతలు</b> (Eligibility criteria)
+   - 📄 <b>కావలసిన పత్రాలు / డాక్యుమెంట్లు</b> (Required documents)
+   - 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)
+   - 🌐 <b>అధికారిక వెబ్‌సైట్ లింక్</b> (Official application website link)
 3. Keep the tone respectful, encouraging, and easy to understand for rural or non-technical citizens.
 4. If the user does not qualify or needs extra conditions (like e-KYC, income certificate, land records), gently inform them.
 """
@@ -41,39 +51,58 @@ def _get_gemini_client():
         return None
 
 
+def markdown_to_telegram_html(text: str) -> str:
+    """Converts basic markdown bold/italic/code syntax into Telegram-safe HTML."""
+    # Convert code blocks
+    text = re.sub(r"```(.*?)```", r"<code>\1</code>", text, flags=re.DOTALL)
+    text = re.sub(r"`(.*?)`", r"<code>\1</code>", text)
+    # Convert bold
+    text = re.sub(r"\*\*(.*?)\*\*", r"<b>\1</b>", text)
+    # Convert headers (### Header -> <b>Header</b>)
+    text = re.sub(r"^#{1,6}\s*(.+)$", r"<b>\1</b>", text, flags=re.MULTILINE)
+    # Convert bullets * or - to bullet symbol
+    text = re.sub(r"^\s*[\*\-]\s+", "• ", text, flags=re.MULTILINE)
+    return text
+
+
 async def analyze_citizen_query(user_text: str) -> Dict[str, Any]:
     """Analyzes user query and returns structured scheme discovery results."""
     client = _get_gemini_client()
 
-    # 1. Fallback / deterministic match results
+    # 1. Deterministic match results
     matched_results = match_schemes(user_text)
 
     # If Gemini is configured, use it for conversational synthesis
     if client:
-        try:
-            # Build context with top 5 relevant schemes or all if few
-            context_schemes = [m[0] for m in matched_results[:5]] if matched_results else SCHEMES[:5]
-            prompt = (
-                f"పౌరుడి ప్రశ్న / పరిస్థితి:\n\"{user_text}\"\n\n"
-                f"అందుబాటులో ఉన్న పథకాల సమాచారం (Knowledge Base):\n"
-                f"{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
-                "దయచేసి పైన పేర్కొన్న ప్రశ్నను పరిశీలించి, సంబంధిత పథకాలను, వాటి ప్రయోజనాలు, అర్హతలు, "
-                "కావలసిన పత్రాలు, దరఖాస్తు విధానం, అధికారిక వెబ్‌సైట్ లింక్ మరియు పౌరుడికి ఎందుకు వర్తిస్తుందో స్పష్టమైన తెలుగులో వివరించండి."
-            )
+        # Build context with top 5 relevant schemes or all if few
+        context_schemes = [m[0] for m in matched_results[:5]] if matched_results else SCHEMES[:5]
+        prompt = (
+            f"పౌరుడి ప్రశ్న / పరిస్థితి:\n\"{user_text}\"\n\n"
+            f"అందుబాటులో ఉన్న పథకాల సమాచారం (Knowledge Base):\n"
+            f"{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
+            "దయచేసి పైన పేర్కొన్న ప్రశ్నను పరిశీలించి, సంబంధిత పథకాలను, వాటి ప్రయోజనాలు, అర్హతలు, "
+            "కావలసిన పత్రాలు, దరఖాస్తు విధానం, అధికారిక వెబ్‌సైట్ లింక్ మరియు పౌరుడికి ఎందుకు వర్తిస్తుందో స్పష్టమైన తెలుగులో వివరించండి. "
+            "HTML ట్యాగ్‌లు (<b>, <i>, <code>, <a>) మాత్రమే ఉపయోగించండి."
+        )
 
-            response = client.models.generate_content(
-                model="gemini-2.5-flash",
-                contents=prompt,
-                config={"system_instruction": SYSTEM_INSTRUCTION},
-            )
-            if response and response.text:
-                return {
-                    "mode": "ai",
-                    "text": response.text,
-                    "matched_schemes": matched_results,
-                }
-        except Exception as e:
-            logger.error(f"Gemini API generation error: {e}. Falling back to rule-based engine.")
+        for model_name in MODELS_TO_TRY:
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config={"system_instruction": SYSTEM_INSTRUCTION},
+                )
+                if response and response.text:
+                    formatted_text = markdown_to_telegram_html(response.text)
+                    return {
+                        "mode": "ai",
+                        "model": model_name,
+                        "text": formatted_text,
+                        "matched_schemes": matched_results,
+                    }
+            except Exception as e:
+                logger.warning(f"Model {model_name} failed: {e}. Trying fallback.")
+                continue
 
     # 2. Rule-based intelligent output
     if not matched_results:
