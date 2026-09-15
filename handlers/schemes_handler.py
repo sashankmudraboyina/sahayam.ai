@@ -10,9 +10,27 @@ from telegram.ext import ContextTypes
 import config
 from data.schemes import SCHEMES, get_all_categories, get_scheme_by_id
 from services.ai_engine import analyze_citizen_query, transcribe_voice
+from services.eligibility_flow import (
+    DOMAIN_SCHOLARSHIP,
+    detect_domain,
+    extract_slots_from_text,
+    format_final_eligibility_report,
+    get_missing_slots,
+    get_slot_question_and_buttons,
+    match_eligible_schemes_for_profile,
+)
 from services.html_sanitizer import prepare_telegram_message, strip_html_tags, split_telegram_message
 from services.matcher import format_scheme_detailed_telugu
 from services.tts_service import generate_telugu_speech
+
+
+def build_eligibility_keyboard(buttons_spec: list) -> InlineKeyboardMarkup:
+    """Builds inline keyboard for eligibility clarification questions."""
+    rows = []
+    for row in buttons_spec:
+        rows.append([InlineKeyboardButton(text=label, callback_data=cb) for label, cb in row])
+    rows.append([InlineKeyboardButton("🔄 కొత్త సంభాషణ (Reset)", callback_data="nav:reset_chat")])
+    return InlineKeyboardMarkup(rows)
 
 
 def build_scheme_actions_keyboard(
@@ -220,7 +238,7 @@ async def send_voice_response(
 
 
 async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles natural language messages in Telugu or English."""
+    """Handles natural language messages in Telugu or English with step-by-step eligibility questioning."""
     if not update.message or not update.message.text:
         return
 
@@ -232,19 +250,130 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     if update.effective_chat:
         await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
 
-    # Retrieve conversation history
-    history = context.user_data.get("conversation_history", [])
+    # 1. Check if there is an active eligibility clarification session
+    session = context.user_data.get("eligibility_session")
 
-    # Analyze citizen query using AI Engine & Matcher with conversation history
+    # Check if this is an explicit follow-up inquiry on a specific scheme
+    is_specific_scheme_inquiry = False
+    lower_text = user_text.lower()
+    for s in SCHEMES:
+        s_id = s.get("id", "").lower()
+        s_name = s.get("name_te", "").split("(")[0].strip().lower()
+        if (s_id in lower_text or (len(s_name) >= 4 and s_name in lower_text)) and any(
+            w in lower_text for w in ["పత్రాలు", "దరఖాస్తు", "విధానం", "ఎలా", "portal", "link", "website", "తేదీ", "అర్హతలు"]
+        ):
+            is_specific_scheme_inquiry = True
+            break
+
+    if session and not is_specific_scheme_inquiry:
+        domain = session.get("domain")
+        session["slots"] = extract_slots_from_text(user_text, session.get("slots", {}))
+        missing = get_missing_slots(domain, session["slots"])
+
+        if missing:
+            next_slot = missing[0]
+            q_text, btn_spec = get_slot_question_and_buttons(domain, next_slot)
+            reply_markup = build_eligibility_keyboard(btn_spec) if btn_spec else None
+            context.user_data["last_response_text"] = q_text
+            await safe_reply_text(update.message, text=q_text, reply_markup=reply_markup)
+            return
+        else:
+            eligible_schemes = match_eligible_schemes_for_profile(domain, session["slots"])
+            report_text = format_final_eligibility_report(domain, session["slots"], eligible_schemes)
+            context.user_data["eligibility_session"] = None
+
+            matched_tuples = [(s, 10.0, s.get("qualify_reason_te", "")) for s in eligible_schemes]
+            context.user_data["last_matched_schemes"] = matched_tuples
+            context.user_data["last_response_text"] = report_text
+
+            top_scheme = eligible_schemes[0] if eligible_schemes else None
+            reply_markup = build_scheme_actions_keyboard(
+                scheme=top_scheme,
+                matched_schemes=matched_tuples,
+                is_detail_view=(len(eligible_schemes) == 1),
+            )
+
+            chunks = split_telegram_message(report_text)
+            for i, chunk in enumerate(chunks):
+                is_last = (i == len(chunks) - 1)
+                markup = reply_markup if is_last else None
+                await safe_reply_text(
+                    update.message,
+                    text=chunk,
+                    reply_markup=markup,
+                    disable_web_page_preview=True,
+                )
+
+            should_send_voice = context.user_data.get("auto_voice", False) or is_voice_requested(user_text)
+            if should_send_voice and update.effective_chat:
+                await send_voice_response(
+                    chat_id=update.effective_chat.id,
+                    text=report_text,
+                    context=context,
+                    reply_to_message_id=update.message.message_id,
+                )
+            return
+
+    # 2. Check if new message initiates an eligibility query
+    domain = detect_domain(user_text)
+    if domain and not is_specific_scheme_inquiry:
+        slots = extract_slots_from_text(user_text)
+        missing = get_missing_slots(domain, slots)
+
+        if missing:
+            # User missed some details! Initiate step-by-step questioning
+            context.user_data["eligibility_session"] = {"domain": domain, "slots": slots}
+            next_slot = missing[0]
+            q_text, btn_spec = get_slot_question_and_buttons(domain, next_slot)
+            reply_markup = build_eligibility_keyboard(btn_spec) if btn_spec else None
+            context.user_data["last_response_text"] = q_text
+            await safe_reply_text(update.message, text=q_text, reply_markup=reply_markup)
+            return
+        else:
+            # User gave ALL details upfront!
+            eligible_schemes = match_eligible_schemes_for_profile(domain, slots)
+            report_text = format_final_eligibility_report(domain, slots, eligible_schemes)
+            matched_tuples = [(s, 10.0, s.get("qualify_reason_te", "")) for s in eligible_schemes]
+            context.user_data["last_matched_schemes"] = matched_tuples
+            context.user_data["last_response_text"] = report_text
+
+            top_scheme = eligible_schemes[0] if eligible_schemes else None
+            reply_markup = build_scheme_actions_keyboard(
+                scheme=top_scheme,
+                matched_schemes=matched_tuples,
+                is_detail_view=(len(eligible_schemes) == 1),
+            )
+
+            chunks = split_telegram_message(report_text)
+            for i, chunk in enumerate(chunks):
+                is_last = (i == len(chunks) - 1)
+                markup = reply_markup if is_last else None
+                await safe_reply_text(
+                    update.message,
+                    text=chunk,
+                    reply_markup=markup,
+                    disable_web_page_preview=True,
+                )
+
+            should_send_voice = context.user_data.get("auto_voice", False) or is_voice_requested(user_text)
+            if should_send_voice and update.effective_chat:
+                await send_voice_response(
+                    chat_id=update.effective_chat.id,
+                    text=report_text,
+                    context=context,
+                    reply_to_message_id=update.message.message_id,
+                )
+            return
+
+    # 3. Otherwise (General or specific scheme query), use standard conversational AI Engine & Matcher
+    history = context.user_data.get("conversation_history", [])
     result = await analyze_citizen_query(user_text, conversation_history=history)
     matched = result.get("matched_schemes", [])
     dynamic_urls = result.get("dynamic_urls", [])
 
-    # Cache last matched schemes and response for voice/know-more on demand
     context.user_data["last_matched_schemes"] = matched
     context.user_data["last_response_text"] = result["text"]
 
-    # Update conversation history
     history.append({"role": "user", "text": user_text})
     history.append({"role": "model", "text": strip_html_tags(result["text"])})
     context.user_data["conversation_history"] = history[-10:]
@@ -268,7 +397,6 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
             disable_web_page_preview=True,
         )
 
-    # Send voice if citizen requested or auto_voice mode is on
     should_send_voice = context.user_data.get("auto_voice", False) or is_voice_requested(user_text)
     if should_send_voice and update.effective_chat:
         await send_voice_response(
@@ -277,6 +405,81 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
             context=context,
             reply_to_message_id=update.message.message_id,
         )
+
+
+async def eligibility_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Handles button taps for step-by-step eligibility questions."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+
+    await query.answer()
+    data = query.data
+    parts = data.split(":")
+    if len(parts) < 3:
+        return
+
+    slot_name = parts[1]
+    slot_val = parts[2]
+
+    session = context.user_data.get("eligibility_session")
+    if not session:
+        domain = DOMAIN_SCHOLARSHIP if slot_name in ["course", "caste", "income"] else DOMAIN_AGRICULTURE
+        session = {"domain": domain, "slots": {}}
+        context.user_data["eligibility_session"] = session
+
+    slot_key_map = {
+        "state": "state",
+        "course": "course_level",
+        "caste": "caste_category",
+        "income": "income_or_ration",
+        "land": "land_status",
+        "pen": "pension_type",
+        "site": "has_site",
+        "wom": "welfare_type",
+        "biz": "business_type",
+    }
+    actual_slot = slot_key_map.get(slot_name, slot_name)
+    session["slots"][actual_slot] = slot_val
+
+    domain = session.get("domain", DOMAIN_SCHOLARSHIP)
+    missing = get_missing_slots(domain, session["slots"])
+
+    if missing:
+        next_slot = missing[0]
+        q_text, btn_spec = get_slot_question_and_buttons(domain, next_slot)
+        reply_markup = build_eligibility_keyboard(btn_spec) if btn_spec else None
+        context.user_data["last_response_text"] = q_text
+        if query.message:
+            await query.message.reply_text(text=q_text, reply_markup=reply_markup, parse_mode=ParseMode.HTML)
+    else:
+        eligible_schemes = match_eligible_schemes_for_profile(domain, session["slots"])
+        report_text = format_final_eligibility_report(domain, session["slots"], eligible_schemes)
+        context.user_data["eligibility_session"] = None
+
+        matched_tuples = [(s, 10.0, s.get("qualify_reason_te", "")) for s in eligible_schemes]
+        context.user_data["last_matched_schemes"] = matched_tuples
+        context.user_data["last_response_text"] = report_text
+
+        top_scheme = eligible_schemes[0] if eligible_schemes else None
+        reply_markup = build_scheme_actions_keyboard(
+            scheme=top_scheme,
+            matched_schemes=matched_tuples,
+            is_detail_view=(len(eligible_schemes) == 1),
+        )
+
+        chunks = split_telegram_message(report_text)
+        for i, chunk in enumerate(chunks):
+            is_last = (i == len(chunks) - 1)
+            markup = reply_markup if is_last else None
+            if query.message:
+                await query.message.reply_text(
+                    text=chunk,
+                    reply_markup=markup,
+                    parse_mode=ParseMode.HTML,
+                    disable_web_page_preview=True,
+                )
+
 
 
 async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -548,6 +751,7 @@ async def voice_toggle_command(update: Update, context: ContextTypes.DEFAULT_TYP
 async def reset_chat_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Clears conversation history and resets chat context."""
     context.user_data["conversation_history"] = []
+    context.user_data["eligibility_session"] = None
     msg = (
         "🔄 <b>సంభాషణ క్లియర్ చేయబడింది!</b>\n\n"
         "మీరు కొత్త ప్రశ్న లేదా కొత్త పథకం గురించి అడగవచ్చు.\n"

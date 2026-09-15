@@ -105,5 +105,10 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
     elif data.startswith("doc:"):
         await scheme_documents_callback(update, context)
 
+    elif data.startswith("elig:"):
+        from handlers.schemes_handler import eligibility_callback_handler
+        await eligibility_callback_handler(update, context)
+
     elif data == "voice:speak":
         await speak_voice_callback(update, context)
+
