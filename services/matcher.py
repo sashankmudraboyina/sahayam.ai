@@ -156,3 +156,33 @@ def format_scheme_detailed_telugu(scheme: Dict[str, Any], qualification_note: st
         f"🌐 <b>అధికారిక దరఖాస్తు వెబ్‌సైట్:</b>\n"
         f"🔗 <a href=\"{scheme['official_link']}\">{scheme['official_link']}</a>"
     )
+
+
+def format_scheme_summary_telugu(scheme: Dict[str, Any], qualification_note: str, index: int = 1) -> str:
+    """Formats a concise summary card for a scheme when multiple schemes are presented together."""
+    # Keep qualification note to 1 clear sentence
+    short_reason = qualification_note.split(".")[0].strip() + "." if "." in qualification_note else qualification_note.strip()
+    # Extract concise first benefit line
+    raw_benefit = scheme.get("benefits_te", "").strip()
+    first_benefit = raw_benefit.split("\n")[0].lstrip("•*- ").strip()
+
+    return (
+        f"<b>{index}. 🏛 {scheme['name_te']}</b>\n"
+        f"   <i>({scheme['name_en']})</i>\n"
+        f"   💰 <b>ప్రయోజనం:</b> {first_benefit}\n"
+        f"   🎯 <b>అర్హత:</b> {short_reason}\n"
+    )
+
+
+def format_multiple_schemes_summary(matched_schemes: List[tuple]) -> str:
+    """Formats multiple matched schemes into a clean, concise digest."""
+    cards = []
+    for idx, (sch, score, reason) in enumerate(matched_schemes[:4], 1):
+        cards.append(format_scheme_summary_telugu(sch, reason, index=idx))
+
+    return (
+        f"🌾 <b>సహాయం (Sahayam.ai) - మీకు అనువైన పథకాలు:</b>\n\n"
+        f"మీ వివరాల ఆధారంగా <b>{len(matched_schemes)}</b> ప్రభుత్వ సంక్షేమ పథకాలు గుర్తించబడ్డాయి:\n\n"
+        + "\n".join(cards) + "\n"
+        "💡 <i>ఏదైనా పథకం యొక్క పూర్తి వివరాలు, కావలసిన పత్రాలు మరియు దరఖాస్తు విధానం తెలుసుకోవడానికి క్రింది బటన్లపై నొక్కండి.</i>"
+    )

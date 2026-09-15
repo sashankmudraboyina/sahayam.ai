@@ -7,7 +7,11 @@ import re
 from typing import Any, Dict, List, Optional
 from data.schemes import SCHEMES
 from services.html_sanitizer import prepare_telegram_message
-from services.matcher import format_scheme_detailed_telugu, match_schemes
+from services.matcher import (
+    format_multiple_schemes_summary,
+    format_scheme_detailed_telugu,
+    match_schemes,
+)
 
 logger = logging.getLogger("telegram_bot.ai_engine")
 
@@ -34,18 +38,30 @@ CONVERSATIONAL CONTINUITY & BOUNDARIES:
      • For pensions: Ask about age, family situation (elderly 60+, widow, disability SADAREM).
      • For housing: Ask if they have a white ration card and own a house site/patta.
      • For education: Ask about student's class/degree, college type, and category.
-4. When Schemes Are Identified:
-   Present the scheme clearly with:
-   - 🏛 <b>పథకం పేరు</b> (Scheme Name)
-   - 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది? / అర్హత విశ్లేషణ</b> (Why you qualify)
-   - 💰 <b>ప్రయోజనాలు</b> (Current benefits / amount)
-   - 📋 <b>అర్హతలు</b> (Eligibility criteria)
-   - 📄 <b>కావలసిన పత్రాలు</b> (Required documents)
-   - 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)
-   - 🌐 <b>అధికారిక లింక్</b> (Official government application portal)
-   - End with a welcoming follow-up offer in Telugu: "మీకు దరఖాస్తు చేయడంలో లేదా డాక్యుమెంట్లలో ఏమైనా సందేహాలు ఉంటే అడగండి!"
 
-5. Formatting:
+4. When Multiple Schemes Are Identified (CRITICAL - AVOID LONG OVERWHELMING MESSAGES):
+   - When 2 or more schemes apply to the citizen's query (e.g., small farmer qualifies for PM-KISAN, Rythu Bharosa, and PMFBY):
+     DO NOT dump full documents, eligibility, and step-by-step application steps for every single scheme at once. That overwhelms the citizen!
+     Instead, provide a CRISP, CLEAN SUMMARY OVERVIEW:
+     For EACH matching scheme, provide:
+     • 🏛 <b>[క్రమసంఖ్య. పథకం పేరు (Scheme Name)]</b>
+       💰 <b>ప్రయోజనం:</b> (Key financial or material benefit in 1 short sentence)
+       🎯 <b>అర్హత:</b> (Briefly why this citizen qualifies in 1 short sentence)
+     Then add a clear prompt at the end:
+     "👉 <i>ఏదైనా పథకం యొక్క పూర్తి వివరాలు (Full Description), కావలసిన పత్రాలు (Documents), మరియు దరఖాస్తు విధానం (Application Process) కోసం క్రింది బటన్ నొక్కండి లేదా ఆ పథకం పేరును ఇక్కడ అడగండి!</i>"
+
+5. When a Single Scheme is Discussed or When Citizen Requests "పూర్తి వివరాలు / More Details / How to Apply":
+   - Provide the complete, structured detailed breakdown for that specific scheme:
+     • 🏛 <b>పథకం పేరు</b> (Scheme Name & Category)
+     • 🎯 <b>మీకు ఎందుకు వర్తిస్తుంది? / అర్హత విశ్లేషణ</b> (Why you qualify)
+     • 💰 <b>ప్రయోజనాలు</b> (Current benefits / amount)
+     • 📋 <b>అర్హతలు</b> (Eligibility criteria)
+     • 📄 <b>కావలసిన పత్రాలు</b> (Required documents)
+     • 📝 <b>దరఖాస్తు విధానం</b> (Step-by-step application procedure)
+     • 🌐 <b>అధికారిక లింక్</b> (Official government application portal)
+     • End with a welcoming follow-up offer in Telugu: "మీకు దరఖాస్తు చేయడంలో లేదా డాక్యుమెంట్లలో ఏమైనా సందేహాలు ఉంటే అడగండి!"
+
+6. Formatting:
    Use ONLY Telegram HTML tags:
    <b>bold</b>, <i>italic</i>, <code>code</code>, <a href="URL">links</a>.
    Do NOT use markdown asterisks (**) or hashes (##).
@@ -136,8 +152,9 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
         knowledge_context = (
             f"Knowledge Base reference for common schemes:\n{json.dumps(context_schemes, ensure_ascii=False, indent=2)}\n\n"
             "Search dynamically across official trusted sources (myscheme.gov.in, india.gov.in, pib.gov.in, ap.gov.in, telangana.gov.in) "
-            "to provide the freshest information. If user query is ambiguous, ask proactive clarifying questions. "
-            "If user asks follow-up questions, resolve them in context of the ongoing conversation."
+            "to provide the freshest information. If user query is ambiguous, ask proactive clarifying questions.\n"
+            "CRITICAL FORMATTING RULE: If multiple schemes match (2 or more schemes), keep the overview short and concise with just Scheme Name, 1-sentence benefit, and 1-sentence eligibility for each scheme. Do NOT write full documents and application procedures for multiple schemes together. Inform user to tap the buttons below or ask for full details of any scheme.\n"
+            "If only one scheme is being asked, or if the user asks for details/documents/how to apply for a specific scheme, provide the full structured details."
         )
 
         # Build multi-turn contents list
@@ -210,24 +227,23 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
             "dynamic_urls": [],
         }
 
+    if len(matched_results) > 1:
+        formatted_response = format_multiple_schemes_summary(matched_results)
+        return {
+            "mode": "deterministic_summary",
+            "text": prepare_telegram_message(formatted_response),
+            "matched_schemes": matched_results,
+            "dynamic_urls": [m[0]["official_link"] for m in matched_results[:2] if m[0].get("official_link")],
+        }
+
     top_scheme, top_score, top_reason = matched_results[0]
     formatted_response = (
-        f"🌾 <b>సహాయం (Sahayam.ai) - సంక్షేమ పథకాల శోధన ఫలితాలు</b>\n\n"
-        f"మీ వివరాల ఆధారంగా <b>{len(matched_results)}</b> అనువైన ప్రభుత్వ పథకాలు గుర్తించబడ్డాయి:\n\n"
-        f"═════════════════════════════\n"
-        f"{format_scheme_detailed_telugu(top_scheme, top_reason)}\n"
-        f"═════════════════════════════\n"
+        f"🌾 <b>సహాయం (Sahayam.ai) - పథకం వివరాలు</b>\n\n"
+        f"{format_scheme_detailed_telugu(top_scheme, top_reason)}"
     )
-
-    if len(matched_results) > 1:
-        formatted_response += "\n📌 <b>మీకు వర్తించే ఇతర సంబంధిత పథకాలు:</b>\n"
-        for i, (other_scheme, score, reason) in enumerate(matched_results[1:4], 1):
-            formatted_response += f"{i}. <b>{other_scheme['name_te']}</b>\n   <i>👉 {reason}</i>\n"
-        formatted_response += "\n💡 <i>క్రింది బటన్ల ద్వారా ఇతర పథకాల పూర్తి వివరాలు, కావలసిన పత్రాలు మరియు దరఖాస్తు లింక్ చూడవచ్చు.</i>"
-
     return {
-        "mode": "deterministic",
+        "mode": "deterministic_detail",
         "text": prepare_telegram_message(formatted_response),
         "matched_schemes": matched_results,
-        "dynamic_urls": [top_scheme["official_link"]],
+        "dynamic_urls": [top_scheme["official_link"]] if top_scheme.get("official_link") else [],
     }

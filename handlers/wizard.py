@@ -6,7 +6,7 @@ from telegram.ext import ContextTypes
 
 from data.schemes import SCHEMES
 from handlers.schemes_handler import build_scheme_actions_keyboard, safe_edit_text
-from services.matcher import format_scheme_detailed_telugu
+from services.matcher import format_multiple_schemes_summary, format_scheme_detailed_telugu
 
 
 async def start_wizard_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -85,13 +85,19 @@ async def wizard_category_selected(update: Update, context: ContextTypes.DEFAULT
     # For other categories, show matched schemes directly
     matching = [s for s in SCHEMES if s["category"] == category]
     if matching:
-        top_s = matching[0]
-        text = (
-            f"✅ <b>మీ వర్గానికి అనువైన ముఖ్య పథకం:</b>\n\n"
-            f"{format_scheme_detailed_telugu(top_s, top_s.get('qualify_reason_te', ''))}"
-        )
         matched_tuples = [(s, 10.0, s.get("qualify_reason_te", "")) for s in matching]
-        markup = build_scheme_actions_keyboard(top_s, matched_tuples)
+        context.user_data["last_matched_schemes"] = matched_tuples
+        if len(matching) > 1:
+            text = format_multiple_schemes_summary(matched_tuples)
+            markup = build_scheme_actions_keyboard(matched_schemes=matched_tuples)
+        else:
+            top_s = matching[0]
+            text = (
+                f"✅ <b>మీ వర్గానికి అనువైన పథకం:</b>\n\n"
+                f"{format_scheme_detailed_telugu(top_s, top_s.get('qualify_reason_te', ''))}"
+            )
+            markup = build_scheme_actions_keyboard(scheme=top_s, matched_schemes=matched_tuples, is_detail_view=True)
+        context.user_data["last_response_text"] = text
         await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
     else:
         await safe_edit_text(query.message, text="సమాచారం లభించలేదు.")
@@ -116,14 +122,10 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             (s, 10.0, reason) for s in SCHEMES if s["category"] == "agriculture" and s["id"] != "pm_kisan"
         ]
         all_matches = [(pm_kisan, 15.0, reason)] + other_schemes
-
-        text = (
-            f"🎉 <b>మీ ప్రొఫైల్‌కు 5 వ్యవసాయ పథకాలు వర్తిస్తాయి!</b>\n\n"
-            f"═════════════════════════════\n"
-            f"{format_scheme_detailed_telugu(pm_kisan, reason)}\n"
-            f"═════════════════════════════"
-        )
-        markup = build_scheme_actions_keyboard(pm_kisan, all_matches)
+        context.user_data["last_matched_schemes"] = all_matches
+        text = format_multiple_schemes_summary(all_matches)
+        context.user_data["last_response_text"] = text
+        markup = build_scheme_actions_keyboard(matched_schemes=all_matches)
         await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
 
     elif land_type == "tenant":
@@ -131,14 +133,10 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
         reason = "కౌలు రైతులు CCRC (Crop Cultivator Rights Card) కార్డు ద్వారా రైతు భరోసా పెట్టుబడి సాయం మరియు పంటల బీమా పొందవచ్చు."
         other_schemes = [(s, 8.0, reason) for s in SCHEMES if s["id"] in ("pmfby_crop_insurance", "free_agri_power")]
         all_matches = [(rythu_bharosa, 12.0, reason)] + other_schemes
-
-        text = (
-            f"🤝 <b>కౌలు రైతులకు లభించే సంక్షేమ పథకాలు:</b>\n\n"
-            f"═════════════════════════════\n"
-            f"{format_scheme_detailed_telugu(rythu_bharosa, reason)}\n"
-            f"═════════════════════════════"
-        )
-        markup = build_scheme_actions_keyboard(rythu_bharosa, all_matches)
+        context.user_data["last_matched_schemes"] = all_matches
+        text = format_multiple_schemes_summary(all_matches)
+        context.user_data["last_response_text"] = text
+        markup = build_scheme_actions_keyboard(matched_schemes=all_matches)
         await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)
 
     else:
@@ -149,9 +147,8 @@ async def wizard_land_selected(update: Update, context: ContextTypes.DEFAULT_TYP
             (free_power, 10.0, reason),
             ([s for s in SCHEMES if s["id"] == "pmfby_crop_insurance"][0], 9.0, reason),
         ]
-        text = (
-            f"🌾 <b>రైతు సంక్షేమ పథకాలు (5 ఎకరాల పైబడిన వారికి):</b>\n\n"
-            f"{format_scheme_detailed_telugu(free_power, reason)}"
-        )
-        markup = build_scheme_actions_keyboard(free_power, all_matches)
+        context.user_data["last_matched_schemes"] = all_matches
+        text = format_multiple_schemes_summary(all_matches)
+        context.user_data["last_response_text"] = text
+        markup = build_scheme_actions_keyboard(matched_schemes=all_matches)
         await safe_edit_text(query.message, text=text, reply_markup=markup, disable_web_page_preview=True)

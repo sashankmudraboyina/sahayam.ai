@@ -96,6 +96,34 @@ class TestTeluguSchemePlatform(unittest.TestCase):
         self.assertNotIn(">", stripped)
         self.assertIn("రైతులకు & ప్రజలకు సహాయం", stripped)
 
+    def test_concise_multiple_schemes_summary(self):
+        from services.matcher import format_multiple_schemes_summary, match_schemes
+        from handlers.schemes_handler import build_scheme_actions_keyboard
+
+        query = "నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?"
+        matched = match_schemes(query)
+        self.assertTrue(len(matched) > 1)
+
+        summary_text = format_multiple_schemes_summary(matched)
+        # Should contain scheme names
+        self.assertIn("పీఎం కిసాన్", summary_text)
+        self.assertIn("ప్రయోజనం:", summary_text)
+        self.assertIn("అర్హత:", summary_text)
+        # Should not dump 10-line document lists in summary
+        self.assertNotIn("బ్యాంక్ పాస్ పుస్తకం జిరాక్స్", summary_text)
+        # Should prompt about clicking buttons for full details
+        self.assertIn("పూర్తి వివరాలు", summary_text)
+
+        # Verify keyboard generated for multiple schemes includes "పూర్తి వివరాలు" buttons
+        kb = build_scheme_actions_keyboard(matched_schemes=matched)
+        button_texts = [btn.text for row in kb.inline_keyboard for btn in row]
+        button_callbacks = [btn.callback_data for row in kb.inline_keyboard for btn in row if btn.callback_data]
+
+        # Check that dedicated full details button exists for top schemes
+        self.assertTrue(any("పూర్తి వివరాలు" in t for t in button_texts))
+        self.assertIn(f"sch:{matched[0][0]['id']}", button_callbacks)
+        self.assertIn(f"sch:{matched[1][0]['id']}", button_callbacks)
+
 
 if __name__ == "__main__":
     unittest.main()

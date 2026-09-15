@@ -14,40 +14,86 @@ from services.matcher import format_scheme_detailed_telugu
 from services.tts_service import generate_telugu_speech
 
 
-def build_scheme_actions_keyboard(scheme: dict = None, matched_schemes: list = None, dynamic_urls: list = None) -> InlineKeyboardMarkup:
-    """Builds interactive action buttons with dynamic official links."""
+def build_scheme_actions_keyboard(
+    scheme: dict = None,
+    matched_schemes: list = None,
+    dynamic_urls: list = None,
+    is_detail_view: bool = False,
+) -> InlineKeyboardMarkup:
+    """Builds interactive action buttons with dynamic official links and 'Know More' buttons."""
     buttons = []
 
-    # Priority 1: Real-time official government links discovered dynamically
-    if dynamic_urls:
-        url_row = []
-        for u in dynamic_urls[:2]:
-            domain = u.split("//")[-1].split("/")[0].replace("www.", "")
-            url_row.append(InlineKeyboardButton(f"🌐 {domain}", url=u))
-        if url_row:
-            buttons.append(url_row)
-    elif scheme and scheme.get("official_link"):
+    # Case 1: Detailed single-scheme view (User clicked 'Know More' or requested a specific scheme)
+    if is_detail_view and scheme:
+        # Priority 1: Official website & documents
+        if scheme.get("official_link"):
+            buttons.append([
+                InlineKeyboardButton("🌐 అధికారిక వెబ్‌సైట్", url=scheme["official_link"]),
+                InlineKeyboardButton("📄 కావలసిన పత్రాలు", callback_data=f"doc:{scheme['id']}"),
+            ])
+
+        # Priority 2: Voice audio listening button
         buttons.append([
-            InlineKeyboardButton("🌐 దరఖాస్తు వెబ్‌సైట్", url=scheme["official_link"]),
-            InlineKeyboardButton("📄 పత్రాల జాబితా", callback_data=f"doc:{scheme['id']}"),
+            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
         ])
 
-    # Voice audio listening button
-    buttons.append([
-        InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
-    ])
+        # Quick navigation to other matched schemes
+        if matched_schemes and len(matched_schemes) > 1:
+            other_buttons = []
+            for other_s, _, _ in matched_schemes[:4]:
+                if other_s["id"] != scheme.get("id"):
+                    btn_label = other_s["name_te"].split("(")[0].strip()[:18]
+                    other_buttons.append(
+                        InlineKeyboardButton(f"👉 {btn_label}", callback_data=f"sch:{other_s['id']}")
+                    )
+            for i in range(0, len(other_buttons), 2):
+                buttons.append(other_buttons[i:i+2])
 
-    # If other schemes matched, add navigation buttons
-    if matched_schemes and len(matched_schemes) > 1:
-        other_row = []
-        for other_s, _, _ in matched_schemes[1:3]:
-            btn_label = other_s["name_te"].split("(")[0].strip()[:18]
-            other_row.append(
-                InlineKeyboardButton(f"👉 {btn_label}", callback_data=f"sch:{other_s['id']}")
-            )
-        if other_row:
-            buttons.append(other_row)
+    # Case 2: Multi-scheme summary view (when 2 or more schemes matched)
+    elif matched_schemes and len(matched_schemes) > 1:
+        # Provide a clear, prominent "పూర్తి వివరాలు (Know More)" button for EACH matched scheme
+        for s, _, _ in matched_schemes[:4]:
+            btn_label = s["name_te"].split("(")[0].strip()[:20]
+            buttons.append([
+                InlineKeyboardButton(
+                    f"ℹ️ {btn_label} - పూర్తి వివరాలు",
+                    callback_data=f"sch:{s['id']}",
+                )
+            ])
 
+        # If official dynamic URLs discovered
+        if dynamic_urls:
+            url_row = []
+            for u in dynamic_urls[:2]:
+                domain = u.split("//")[-1].split("/")[0].replace("www.", "")
+                url_row.append(InlineKeyboardButton(f"🌐 {domain}", url=u))
+            if url_row:
+                buttons.append(url_row)
+
+        buttons.append([
+            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+        ])
+
+    # Case 3: Single scheme view
+    else:
+        if dynamic_urls:
+            url_row = []
+            for u in dynamic_urls[:2]:
+                domain = u.split("//")[-1].split("/")[0].replace("www.", "")
+                url_row.append(InlineKeyboardButton(f"🌐 {domain}", url=u))
+            if url_row:
+                buttons.append(url_row)
+        elif scheme and scheme.get("official_link"):
+            buttons.append([
+                InlineKeyboardButton("🌐 దరఖాస్తు వెబ్‌సైట్", url=scheme["official_link"]),
+                InlineKeyboardButton("📄 కావలసిన పత్రాలు", callback_data=f"doc:{scheme['id']}"),
+            ])
+
+        buttons.append([
+            InlineKeyboardButton("🔊 వాయిస్‌లో వినండి (Listen Audio)", callback_data="voice:speak"),
+        ])
+
+    # Universal navigation footer
     buttons.append([
         InlineKeyboardButton("📋 అన్ని విభాగాలు", callback_data="nav:categories"),
         InlineKeyboardButton("🎯 అర్హత చెకర్", callback_data="nav:wizard"),
@@ -157,7 +203,8 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
     matched = result.get("matched_schemes", [])
     dynamic_urls = result.get("dynamic_urls", [])
 
-    # Cache last response for voice playback on demand
+    # Cache last matched schemes and response for voice/know-more on demand
+    context.user_data["last_matched_schemes"] = matched
     context.user_data["last_response_text"] = result["text"]
 
     # Update conversation history
@@ -170,6 +217,7 @@ async def handle_citizen_message(update: Update, context: ContextTypes.DEFAULT_T
         scheme=top_scheme,
         matched_schemes=matched,
         dynamic_urls=dynamic_urls,
+        is_detail_view=(len(matched) == 1),
     )
 
     chunks = split_telegram_message(result["text"])
@@ -210,7 +258,8 @@ async def scheme_detail_callback(update: Update, context: ContextTypes.DEFAULT_T
 
     text = format_scheme_detailed_telugu(scheme, scheme.get("qualify_reason_te", "అర్హత కలిగిన లబ్ధిదారులు దరఖాస్తు చేసుకోవచ్చు."))
     context.user_data["last_response_text"] = text
-    markup = build_scheme_actions_keyboard(scheme)
+    last_matched = context.user_data.get("last_matched_schemes")
+    markup = build_scheme_actions_keyboard(scheme=scheme, matched_schemes=last_matched, is_detail_view=True)
 
     if query.message:
         await safe_reply_text(
@@ -348,6 +397,7 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
         history.append({"role": "user", "text": transcribed_text})
         history.append({"role": "model", "text": strip_html_tags(result["text"])})
         context.user_data["conversation_history"] = history[-10:]
+        context.user_data["last_matched_schemes"] = matched
         context.user_data["last_response_text"] = result["text"]
 
         top_scheme = matched[0][0] if matched else None
@@ -355,6 +405,7 @@ async def handle_citizen_voice(update: Update, context: ContextTypes.DEFAULT_TYP
             scheme=top_scheme,
             matched_schemes=matched,
             dynamic_urls=dynamic_urls,
+            is_detail_view=(len(matched) == 1),
         )
 
         response_header = (
