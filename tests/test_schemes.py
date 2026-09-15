@@ -1,0 +1,81 @@
+import unittest
+from services.matcher import extract_entities, match_schemes, format_scheme_detailed_telugu
+from data.schemes import SCHEMES, get_scheme_by_id, get_all_categories
+
+
+class TestTeluguSchemePlatform(unittest.TestCase):
+    def test_farmer_two_acres_example(self):
+        """Tests the exact prompt given in the user description:
+        'నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?'
+        """
+        query = "నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?"
+        entities = extract_entities(query)
+
+        # 1. Entity extraction verification
+        self.assertEqual(entities["land_acres"], 2.0)
+        self.assertTrue(entities["is_small_farmer"])
+        self.assertIn("agriculture", entities["categories"])
+
+        # 2. Scheme matching verification
+        matched = match_schemes(query)
+        self.assertTrue(len(matched) >= 3, "Should match at least 3 agricultural schemes")
+
+        top_scheme, score, reason = matched[0]
+        self.assertEqual(top_scheme["id"], "pm_kisan")
+        self.assertIn("2.0 ఎకరాల", reason)
+        self.assertIn("పూర్తి అర్హులు", reason)
+
+        # 3. Verify all 7 required components are present in detailed format
+        output = format_scheme_detailed_telugu(top_scheme, reason)
+
+        # Relevant scheme name
+        self.assertIn("పీఎం కిసాన్", output)
+        # Eligibility
+        self.assertIn("అర్హతలు", output)
+        # Benefits
+        self.assertIn("ప్రయోజనాలు", output)
+        self.assertIn("6,000", output)
+        # Required documents
+        self.assertIn("కావలసిన పత్రాలు", output)
+        self.assertIn("ఆధార్", output)
+        self.assertIn("పాస్ పుస్తకం", output)
+        # Application procedure
+        self.assertIn("దరఖాస్తు విధానం", output)
+        # Official application link
+        self.assertIn("pmkisan.gov.in", output)
+        # Why user qualifies
+        self.assertIn("మీకు ఎందుకు వర్తిస్తుంది", output)
+
+    def test_senior_pension_query(self):
+        query = "మా ఇంట్లో వృద్ధులకు 65 ఏళ్లు. ఆసరా వృద్ధాప్య పెన్షన్ ఎలా పొందాలి?"
+        entities = extract_entities(query)
+        self.assertIn("pension", entities["categories"])
+
+        matched = match_schemes(query)
+        self.assertTrue(any(s["id"] == "aasara_pension" for s, _, _ in matched))
+
+    def test_health_query(self):
+        query = "మాకు రేషన్ కార్డు ఉంది, హాస్పిటల్ లో ఉచిత వైద్యం మరియు ఆపరేషన్ కొరకు పథకం ఏమిటి?"
+        entities = extract_entities(query)
+        self.assertIn("health", entities["categories"])
+
+        matched = match_schemes(query)
+        self.assertTrue(any(s["id"] == "aarogyasri" for s, _, _ in matched))
+
+    def test_street_vendor_loan_query(self):
+        query = "నేను తోపుడు బండిపై వీధి వ్యాపారం చేస్తున్నాను, రుణం కావాలి"
+        entities = extract_entities(query)
+        self.assertIn("business", entities["categories"])
+
+        matched = match_schemes(query)
+        self.assertTrue(any(s["id"] == "pm_svanidhi" for s, _, _ in matched))
+
+    def test_categories_integrity(self):
+        cats = get_all_categories()
+        self.assertTrue(len(cats) >= 6)
+        for cat in cats:
+            self.assertTrue(any(s["category"] == cat["key"] for s in SCHEMES))
+
+
+if __name__ == "__main__":
+    unittest.main()

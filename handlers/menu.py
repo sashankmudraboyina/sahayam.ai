@@ -1,140 +1,101 @@
-import datetime
-import html
-import platform
-import random
-import sys
+"""Navigation and callback routing for Sahayam.ai."""
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
-import config
-from handlers.start import get_main_menu_keyboard, get_welcome_text
-from handlers.tools import get_tools_keyboard
+from handlers.schemes_handler import (
+    category_browse_callback,
+    categories_callback,
+    scheme_detail_callback,
+    scheme_documents_callback,
+)
+from handlers.start import get_home_keyboard, get_welcome_text, help_command
+from handlers.wizard import (
+    start_wizard_callback,
+    wizard_category_selected,
+    wizard_land_selected,
+)
 
-FUN_FACTS = [
-    "The first computer bug was an actual real moth trapped in a Mark II computer relay in 1947.",
-    "Python was named after the British comedy troupe 'Monty Python', not the snake!",
-    "Telegram was launched in 2013 by brothers Nikolai and Pavel Durov.",
-    "The @BotFather is the official Telegram bot used to create and manage all Telegram bots.",
-    "Over 700 million people use Telegram monthly worldwide.",
-    "The first 1GB hard drive, released by IBM in 1980, weighed about 550 pounds (250 kg) and cost $40,000.",
-]
+
+async def samples_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shows sample queries users can ask in natural Telugu."""
+    query = update.callback_query
+    if not query:
+        return
+
+    await query.answer()
+    text = (
+        "💡 <b>నమూనా ప్రశ్నలు (Sample Questions):</b>\n\n"
+        "మీరు క్రింది విధంగా సహజమైన తెలుగులో సందేశం పంపవచ్చు:\n\n"
+        "1. 🌾 <i>\"నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?\"</i>\n\n"
+        "2. 🏥 <i>\"ఆరోగ్యశ్రీ ద్వారా ఉచిత వైద్యం పొందడానికి తెల్ల రేషన్ కార్డు సరిపోతుందా?\"</i>\n\n"
+        "3. 🎓 <i>\"మా అబ్బాయి కాలేజీ చదువుతున్నాడు, ఫీజు రీయింబర్స్‌మెంట్ పథకం కావాలి.\"</i>\n\n"
+        "4. 👴 <i>\"60 ఏళ్లు దాటిన వారికి వృద్ధాప్య పెన్షన్ కు ఏమేం కాగితాలు కావాలి?\"</i>\n\n"
+        "5. 💼 <i>\"తోపుడు బండిపై పండ్ల వ్యాపారం చేస్తున్నాను, లోన్ ఎలా పొందాలి?\"</i>\n\n"
+        "6. 🏠 <i>\"సొంత స్థలంలో ఇల్లు కట్టుకోవడానికి ప్రభుత్వ రాయితీ పథకం ఉందా?\"</i>\n\n"
+        "👉 <i>పై ప్రశ్నల్లో ఒకదాన్ని కాపీ చేసి మెసేజ్ బాక్స్‌లో పేస్ట్ చేయండి లేదా మీ సొంత పరిస్థితిని వివరించండి!</i>"
+    )
+
+    markup = InlineKeyboardMarkup([
+        [InlineKeyboardButton("🎯 అర్హత చెకర్ ప్రారంభించండి", callback_data="nav:wizard")],
+        [InlineKeyboardButton("⬅️ ముఖ్య మెనూ", callback_data="nav:home")],
+    ])
+
+    if query.message:
+        await query.message.edit_text(text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
 
-async def menu_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Dispatches inline keyboard button callbacks."""
+async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Central router for all callback queries."""
     query = update.callback_query
     if not query or not query.data:
         return
 
-    # Always acknowledge the callback query so user sees instant response
-    await query.answer()
-
     data = query.data
 
-    if data == "menu:main":
+    if data == "nav:home":
+        await query.answer()
         user = update.effective_user
-        first_name = user.first_name if user else "Friend"
-        await query.edit_message_text(
-            text=get_welcome_text(first_name),
-            reply_markup=get_main_menu_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
+        name = user.first_name if user else "మిత్రమా"
+        if query.message:
+            await query.message.edit_text(
+                text=get_welcome_text(name),
+                reply_markup=get_home_keyboard(),
+                parse_mode=ParseMode.HTML,
+            )
 
-    elif data == "menu:tools":
-        text = (
-            "🛠 <b>Utilities Menu</b>\n\n"
-            "Choose a quick tool below to run directly, or type <code>/help</code> to see command syntax."
-        )
-        await query.edit_message_text(
-            text=text,
-            reply_markup=get_tools_keyboard(),
-            parse_mode=ParseMode.HTML,
-        )
+    elif data == "nav:wizard":
+        await start_wizard_callback(update, context)
 
-    elif data == "menu:status":
-        uptime = config.get_uptime_str()
-        py_ver = platform.python_version()
-        sys_os = f"{platform.system()} {platform.release()}"
-        user_id = update.effective_user.id if update.effective_user else "N/A"
+    elif data == "nav:categories":
+        await categories_callback(update, context)
 
-        status_text = (
-            "📊 <b>Bot & System Status</b>\n\n"
-            f"⏱ <b>Uptime:</b> <code>{uptime}</code>\n"
-            f"🐍 <b>Python:</b> <code>v{py_ver}</code>\n"
-            f"🖥 <b>Host OS:</b> <code>{sys_os}</code>\n"
-            f"👤 <b>Your Telegram ID:</b> <code>{user_id}</code>\n"
-            f"⚡️ <b>Status:</b> 🟢 Operational"
-        )
-        back_markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔄 Refresh", callback_data="menu:status"),
-                InlineKeyboardButton("⬅️ Back", callback_data="menu:main"),
-            ]
-        ])
-        await query.edit_message_text(
-            text=status_text,
-            reply_markup=back_markup,
-            parse_mode=ParseMode.HTML,
-        )
+    elif data == "nav:samples":
+        await samples_callback(update, context)
 
-    elif data == "menu:help":
-        from handlers.start import help_command
+    elif data == "nav:help":
         await help_command(update, context)
 
-    elif data == "menu:close":
+    elif data == "nav:help_query":
+        await query.answer()
         if query.message:
-            await query.message.delete()
+            await query.message.reply_text(
+                "✍️ <i>దయచేసి మీ పరిస్థితి లేదా ప్రశ్నను ఇక్కడ తెలుగులో టైప్ చేసి పంపండి. నేను తక్షణమే సమాధానం ఇస్తాను!</i>",
+                parse_mode=ParseMode.HTML,
+            )
 
-    # Tool callbacks
-    elif data == "tool:roll":
-        result = random.randint(1, 6)
-        text = (
-            f"🎲 <b>Dice Roll Result:</b>\n"
-            f"You rolled a <b>{result}</b> (1–6)"
-        )
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🎲 Roll Again", callback_data="tool:roll"),
-                InlineKeyboardButton("⬅️ Back to Tools", callback_data="menu:tools"),
-            ]
-        ])
-        await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    elif data.startswith("wiz:cat:"):
+        await wizard_category_selected(update, context)
 
-    elif data == "tool:flip":
-        outcome = random.choice(["Heads 🦅", "Tails 🪙"])
-        text = f"🪙 <b>Coin Flip Result:</b>\n<b>{outcome}</b>"
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🪙 Flip Again", callback_data="tool:flip"),
-                InlineKeyboardButton("⬅️ Back to Tools", callback_data="menu:tools"),
-            ]
-        ])
-        await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    elif data.startswith("wiz:land:"):
+        await wizard_land_selected(update, context)
 
-    elif data == "tool:time":
-        now_utc = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
-        now_local = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        text = (
-            "🕒 <b>Current Time:</b>\n\n"
-            f"🌐 <b>UTC:</b> <code>{now_utc}</code>\n"
-            f"🖥 <b>Server:</b> <code>{now_local}</code>"
-        )
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🔄 Refresh", callback_data="tool:time"),
-                InlineKeyboardButton("⬅️ Back to Tools", callback_data="menu:tools"),
-            ]
-        ])
-        await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    elif data.startswith("cat_browse:"):
+        await category_browse_callback(update, context)
 
-    elif data == "tool:fact":
-        fact = random.choice(FUN_FACTS)
-        text = f"💡 <b>Did You Know?</b>\n\n<i>{fact}</i>"
-        markup = InlineKeyboardMarkup([
-            [
-                InlineKeyboardButton("🎲 Another Fact", callback_data="tool:fact"),
-                InlineKeyboardButton("⬅️ Back to Tools", callback_data="menu:tools"),
-            ]
-        ])
-        await query.edit_message_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
+    elif data.startswith("sch:"):
+        await scheme_detail_callback(update, context)
+
+    elif data.startswith("doc:"):
+        await scheme_documents_callback(update, context)

@@ -1,102 +1,103 @@
-# 🤖 Telegram Utility & Menu Bot
+# 🌾 సహాయం (Sahayam.ai) - Telugu AI Government Welfare Scheme Discovery Platform
 
-A modern, production-ready Telegram Bot built in Python using **`python-telegram-bot` (v20+ async architecture)**.
+**Sahayam.ai (సహాయం)** is an AI-powered conversational government welfare scheme discovery platform built for Telugu-speaking citizens. Many citizens find it difficult to navigate complex government websites and bureaucratic jargon. With Sahayam.ai, citizens can simply describe their situation in natural, everyday Telugu (or English), and the system instantly identifies relevant schemes, explains benefits, eligibility criteria, required documents, step-by-step application procedures, and why they qualify.
 
-## ✨ Features
+---
 
-- 🎮 **Interactive Menus**: Inline keyboards with dynamic sub-menus and back-navigation.
-- ⚡ **Auto-Registered Commands**: Commands are registered with Telegram's UI for native autocomplete.
-- 🎲 **Utility Commands**:
-  - `/roll [sides]` — Roll dice (e.g. `/roll 20`).
-  - `/flip` — Heads or Tails coin flip.
-  - `/calc <expression>` — Safe arithmetic calculator (built with AST parsing, avoiding `eval` security risks).
-  - `/time` — Displays server and UTC time.
-  - `/echo <text>` — Echo text with character and word count statistics.
-  - `/status` — Real-time uptime, Python version, and system metrics.
-- 📝 **Interactive Multi-Step Flow**: `/feedback` flow implemented with `ConversationHandler` (category selection, message input, cancellation support).
-- 🛡 **Security & Error Handling**: Global exception handler, input validation, and AST expression execution.
+## 🤖 Live Telegram Bot
+
+* **Bot Name:** `sahayam.ai`
+* **Bot Username:** [@sahayamusernameledu_bot](https://t.me/sahayamusernameledu_bot)
+* **Access Link:** [https://t.me/sahayamusernameledu_bot](https://t.me/sahayamusernameledu_bot)
+
+---
+
+## 🌟 Key Features
+
+1. **Natural Telugu Processing & Entity Extraction**:
+   - Understands colloquial Telugu (e.g., `"నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?"`).
+   - Automatically extracts citizen parameters: land size (e.g. `రెండు ఎకరాలు` -> `2.0 acres`), farmer classification (చిన్న రైతు / సన్నకారు రైతు), occupation, age, and requirements.
+
+2. **Comprehensive Scheme Evaluation (All 7 Key Dimensions)**:
+   For every query, the bot delivers:
+   - 🏛 **సంబంధిత పథకాలు (Relevant Schemes)**: Matched against Central & State (AP/Telangana) databases.
+   - 🎯 **మీకు ఎందుకు వర్తిస్తుంది? (Why you qualify / conditions)**: Tailored rationale explaining how the citizen meets scheme parameters.
+   - 💰 **ప్రయోజనాలు (Benefits)**: Financial amounts, subsidies, insurance coverage details.
+   - 📋 **అర్హతలు (Eligibility)**: Landholding limits, income thresholds, family criteria, age.
+   - 📄 **కావలసిన పత్రాలు / డాక్యుమెంట్లు (Required Documents)**: Aadhaar, Pattadar passbook, Ration card, 1-B, etc.
+   - 📝 **దరఖాస్తు విధానం (Application Procedure)**: Step-by-step guide (Grama/Ward Sachivalayam, MeeSeva, RBK, or online).
+   - 🌐 **అధికారిక వెబ్‌సైట్ లింక్ (Official Application Link)**: Direct clickable government portal URLs.
+
+3. **Dual-Engine Architecture (Hybrid AI + Deterministic Matcher)**:
+   - **Gemini AI Engine**: If `GEMINI_API_KEY` is provided, leverages Google Gemini 2.5 Flash grounded on the scheme knowledge base for natural conversational Telugu synthesis.
+   - **Smart Telugu Semantic Rule Engine**: Works 100% out of the box without any external API keys or cloud dependencies.
+
+4. **Interactive Eligibility Wizard & Category Browser**:
+   - 🎯 **అర్హత చెకర్ (Wizard)**: Guided tap-to-answer questionnaire for farmers, women, students, seniors, vendors, etc.
+   - 📂 **విభాగాలు (Categories)**: Browse Agriculture, Women/SHG, Education, Healthcare (Aarogyasri), Pensions, Loans, and Housing.
 
 ---
 
 ## 📁 Project Structure
 
 ```text
-├── config.py             # Configuration loader, environment validation & logger
-├── main.py               # Application initialization, handler routing, polling loop
+├── config.py                 # Configuration loader, token validation & logging
+├── main.py                   # Telegram Bot entry point, polling, command handlers
+├── data/
+│   ├── __init__.py
+│   └── schemes.py            # Central & State welfare schemes knowledge base
+├── services/
+│   ├── __init__.py
+│   ├── matcher.py            # Natural Telugu entity extraction & constraint reasoning
+│   └── ai_engine.py          # Gemini AI bridge with deterministic fallback
 ├── handlers/
 │   ├── __init__.py
-│   ├── start.py          # /start and /help command handlers & main menu
-│   ├── menu.py           # Inline button callbacks & submenu router
-│   ├── tools.py          # Utility commands (/roll, /flip, /calc, /time, /echo)
-│   └── feedback.py       # Multi-step ConversationHandler flow
+│   ├── start.py              # /start, /help and main welcome in Telugu
+│   ├── schemes_handler.py    # Natural language query processing & inline action buttons
+│   ├── wizard.py             # Interactive step-by-step eligibility checker
+│   └── menu.py               # Callback router and sample questions
 ├── tests/
-│   └── test_bot.py       # Unit tests
-├── requirements.txt      # Python dependencies
-├── .env.example          # Environment variable template
-└── README.md             # Project documentation
+│   ├── test_schemes.py       # Unit tests verifying NLP extraction & scheme accuracy
+│   └── test_bot.py           # Core bot sanity tests
+├── requirements.txt          # Python dependencies
+├── .env.example              # Environment template
+└── README.md
 ```
 
 ---
 
-## 🚀 Getting Started
+## 🚀 Quick Start Guide
 
-### 1. Obtain a Bot Token from BotFather
-
-1. Open Telegram and search for [@BotFather](https://t.me/BotFather).
-2. Send `/newbot` and follow the prompts to choose a name and username for your bot.
-3. BotFather will provide an **API token** (e.g., `123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ_Example`).
-
-### 2. Configure Environment
-
-Copy `.env.example` to `.env` and set your token:
-
-```bash
-cp .env.example .env
-```
-
-Edit `.env`:
+### 1. Configure Environment
+Your `.env` file should contain:
 ```env
-TELEGRAM_BOT_TOKEN=your_token_from_botfather
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+GEMINI_API_KEY=optional_gemini_api_key
 LOG_LEVEL=INFO
 ```
 
-### 3. Run the Bot
-
-Activate the virtual environment and launch `main.py`:
-
+### 2. Run the Bot
 ```bash
 source .venv/bin/activate
 python main.py
 ```
 
-Open Telegram and send `/start` to your bot!
-
----
-
-## 🧪 Running Unit Tests
-
-Run the test suite with:
-
+### 3. Run Automated Tests
 ```bash
-.venv/bin/python -m unittest tests/test_bot.py
+.venv/bin/python -m unittest discover tests/
 ```
 
 ---
 
-## 🛠 Adding New Commands
+## 💡 Example Queries to Try in Telegram
 
-To add a new command (e.g. `/weather`):
-
-1. Define your async handler function in `handlers/tools.py` (or create a new file under `handlers/`):
-   ```python
-   from telegram import Update
-   from telegram.ext import ContextTypes
-
-   async def weather_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-       await update.message.reply_text("Current weather: Sunny, 24°C ☀️")
-   ```
-2. Register it in `main.py`:
-   ```python
-   application.add_handler(CommandHandler("weather", weather_command))
-   ```
-3. Optionally add it to `post_init` in `main.py` so it appears in Telegram's autocomplete menu.
+* **రైతులు (Farmers):**
+  > *"నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?"*
+* **ఆరోగ్యం (Health):**
+  > *"ఆరోగ్యశ్రీ పథకం ద్వారా ఉచిత వైద్యం మరియు ఆపరేషన్లకు ఏయే పత్రాలు కావాలి?"*
+* **విద్యార్థులు (Students):**
+  > *"మా అబ్బాయి ఇంజనీరింగ్ చదువుతున్నాడు. ఫీజు రీయింబర్స్‌మెంట్ ఎలా వస్తుంది?"*
+* **వ్యాపారం (Small Business):**
+  > *"తోపుడు బండిపై పండ్ల వ్యాపారం చేస్తున్నాను, పీఎం స్వనిధి లోన్ ఎలా పొందాలి?"*
+* **పెన్షన్లు (Pensions):**
+  > *"మా ఇంట్లో పెద్దవారికి 65 ఏళ్లు. వృద్ధాప్య పింఛను ఎలా దరఖాస్తు చేసుకోవాలి?"*

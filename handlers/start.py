@@ -1,80 +1,88 @@
+"""Start and Help Handlers for Sahayam.ai Telugu Welfare Scheme Platform."""
+
 import html
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ParseMode
 from telegram.ext import ContextTypes
 
 
-def get_main_menu_keyboard() -> InlineKeyboardMarkup:
-    """Builds the main interactive menu inline keyboard."""
+def get_home_keyboard() -> InlineKeyboardMarkup:
+    """Main menu navigation buttons."""
     keyboard = [
         [
-            InlineKeyboardButton("🛠 Tools & Utilities", callback_data="menu:tools"),
-            InlineKeyboardButton("📊 System Status", callback_data="menu:status"),
+            InlineKeyboardButton("🎯 అర్హత చెకర్ (Wizard)", callback_data="nav:wizard"),
+            InlineKeyboardButton("📂 పథకాల విభాగాలు", callback_data="nav:categories"),
         ],
         [
-            InlineKeyboardButton("📝 Give Feedback", callback_data="menu:feedback"),
-            InlineKeyboardButton("❓ Help Guide", callback_data="menu:help"),
-        ],
-        [
-            InlineKeyboardButton("❌ Close Menu", callback_data="menu:close"),
+            InlineKeyboardButton("💡 నమూనా ప్రశ్నలు (Examples)", callback_data="nav:samples"),
+            InlineKeyboardButton("📖 పూర్తి గైడ్ (Help)", callback_data="nav:help"),
         ],
     ]
     return InlineKeyboardMarkup(keyboard)
 
 
 def get_welcome_text(user_first_name: str) -> str:
-    """Generates the welcome text for the main menu."""
+    """Generates the main welcoming message in polite, encouraging Telugu."""
     safe_name = html.escape(user_first_name)
     return (
-        f"👋 <b>Welcome, {safe_name}!</b>\n\n"
-        "I am your multipurpose <b>Telegram Utility Bot</b>.\n"
-        "Use the buttons below to explore tools, check bot status, or access help.\n\n"
-        "💡 <i>Tip: You can also type <code>/help</code> at any time to see the list of commands.</i>"
+        f"🙏 <b>నమస్కారం {safe_name} గారూ!</b>\n\n"
+        "నేను <b>సహాయం (Sahayam.ai)</b> — ప్రభుత్వ సంక్షేమ పథకాలను సులభంగా తెలుసుకోవడానికి మీ డిజిటల్ సహాయకుడిని.\n\n"
+        "📢 <b>మీరు ఎలా అడగవచ్చు?</b>\n"
+        "మీ పరిస్థితిని సాధారణ తెలుగులో మెసేజ్ చేయండి. ఉదాహరణకు:\n\n"
+        "👉 <i>\"నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?\"</i>\n"
+        "👉 <i>\"నేను డిగ్రీ చదువుతున్నాను. నాకు ఫీజు రీయింబర్స్‌మెంట్ పథకం కావాలి.\"</i>\n"
+        "👉 <i>\"మా అమ్మగారికి 62 ఏళ్లు. వృద్ధాప్య పెన్షన్ ఎలా వస్తుంది?\"</i>\n"
+        "👉 <i>\"చిన్న కిరాణా షాపు కోసం లోన్ కావాలి.\"</i>\n\n"
+        "⚡ <b>వ్యవస్థ తక్షణమే మీకు:</b>\n"
+        "• సంబంధిత పథకాలు\n"
+        "• మీకు ఎందుకు వర్తిస్తుంది?\n"
+        "• ప్రయోజనాలు & అర్హతలు\n"
+        "• కావలసిన పత్రాల జాబితా\n"
+        "• దరఖాస్తు విధానం & అధికారిక లింక్\n\n"
+        "క్రింది బటన్లను ఉపయోగించి కూడా ప్రారంభించవచ్చు:"
     )
 
 
 async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles /start command: sends welcome message and main menu."""
+    """Handles /start command."""
     user = update.effective_user
-    first_name = user.first_name if user else "Friend"
-    reply_markup = get_main_menu_keyboard()
+    name = user.first_name if user else "మిత్రమా"
+    reply_markup = get_home_keyboard()
 
     if update.message:
         await update.message.reply_text(
-            text=get_welcome_text(first_name),
+            text=get_welcome_text(name),
             reply_markup=reply_markup,
             parse_mode=ParseMode.HTML,
         )
 
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles /help command: sends list of available commands and usage instructions."""
+    """Handles /help command."""
     help_text = (
-        "📖 <b>Bot Command Guide</b>\n\n"
-        "<b>Core Commands:</b>\n"
-        "• <code>/start</code> - Open main menu\n"
-        "• <code>/help</code> - Show this command guide\n"
-        "• <code>/status</code> - View bot uptime and system info\n\n"
-        "<b>Utility Commands:</b>\n"
-        "• <code>/tools</code> - Open tools menu\n"
-        "• <code>/roll [sides]</code> - Roll a die (default 6 sides, e.g. <code>/roll 20</code>)\n"
-        "• <code>/flip</code> - Flip a coin (Heads or Tails)\n"
-        "• <code>/calc &lt;math&gt;</code> - Calculate an expression (e.g. <code>/calc (15 * 4) + 10</code>)\n"
-        "• <code>/time</code> - View current UTC and server time\n"
-        "• <code>/echo &lt;text&gt;</code> - Echo text with word/character count\n\n"
-        "<b>Interactive Flows:</b>\n"
-        "• <code>/feedback</code> - Start interactive feedback questionnaire\n"
-        "• <code>/cancel</code> - Cancel any active conversation flow"
+        "📖 <b>సహాయం (Sahayam.ai) - వినియోగ గైడ్:</b>\n\n"
+        "<b>1. నేరుగా సందేశం పంపడం:</b>\n"
+        "మీ పరిస్థితి, భూమి విస్తీర్ణం, కుటుంబ ఆదాయం, లేదా వృత్తి గురించి ఎలాంటి సందేహం ఉన్నా తెలుగులో టైప్ చేసి పంపండి.\n\n"
+        "<b>2. ఆదేశాలు (Commands):</b>\n"
+        "• <code>/start</code> - ముఖ్య మెనూకి తిరిగి వెళ్లండి\n"
+        "• <code>/schemes</code> - సంక్షేమ పథకాల విభాగాలను చూడండి\n"
+        "• <code>/wizard</code> - దశలవారీ అర్హత పరిశీలన ప్రారంభించండి\n"
+        "• <code>/help</code> - ఈ సమాచార మార్గదర్శిని\n\n"
+        "<b>3. నమూనా ప్రశ్నలు:</b>\n"
+        "• <i>\"నాకు 2 ఎకరాల పొలం ఉంది, నాకు ఏ పథకాలు వస్తాయి?\"</i>\n"
+        "• <i>\"ఆరోగ్యశ్రీ ఆపరేషన్లకు ఏయే పత్రాలు కావాలి?\"</i>\n"
+        "• <i>\"డ్వాక్రా మహిళల సున్నా వడ్డీ రుణాలు ఎలా పొందాలి?\"</i>\n"
+        "• <i>\"రోడ్డు పక్కన పండ్ల వ్యాపారం చేస్తున్నాను, ముద్ర రుణం వర్తిస్తుందా?\"</i>"
     )
 
+    markup = InlineKeyboardMarkup([
+        [
+            InlineKeyboardButton("🎯 అర్హత చెకర్ ప్రారంభించండి", callback_data="nav:wizard"),
+            InlineKeyboardButton("⬅️ ముఖ్య మెనూ", callback_data="nav:home"),
+        ]
+    ])
+
     if update.message:
-        await update.message.reply_text(text=help_text, parse_mode=ParseMode.HTML)
+        await update.message.reply_text(text=help_text, reply_markup=markup, parse_mode=ParseMode.HTML)
     elif update.callback_query and update.callback_query.message:
-        back_markup = InlineKeyboardMarkup([
-            [InlineKeyboardButton("⬅️ Back to Main Menu", callback_data="menu:main")]
-        ])
-        await update.callback_query.message.edit_text(
-            text=help_text,
-            reply_markup=back_markup,
-            parse_mode=ParseMode.HTML,
-        )
+        await update.callback_query.message.edit_text(text=help_text, reply_markup=markup, parse_mode=ParseMode.HTML)

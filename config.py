@@ -12,6 +12,7 @@ load_dotenv()
 
 BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
 # Configure logging
 logging.basicConfig(
