@@ -80,41 +80,41 @@ def extract_slots_from_text(text: str, current_slots: Optional[Dict[str, Any]] =
     lower_text = text.lower()
 
     # 1. State extraction
-    if any(w in lower_text for w in ["తెలంగాణ", "telangana", "ts", "హైదరాబాద్"]):
+    if re.search(r"\b(telangana|ts)\b", lower_text) or any(w in lower_text for w in ["తెలంగాణ", "హైదరాబాద్"]):
         slots["state"] = "Telangana"
-    elif any(w in lower_text for w in ["ఆంధ్రప్రదేశ్", "ఆంధ్ర", "andhra", "ap", "విజయవాడ", "అమరావతి"]):
+    elif re.search(r"\b(andhra|ap)\b", lower_text) or any(w in lower_text for w in ["ఆంధ్రప్రదేశ్", "ఆంధ్ర", "విజయవాడ", "అమరావతి"]):
         slots["state"] = "Andhra Pradesh"
-    elif any(w in lower_text for w in ["కేంద్ర", "భారత", "central", "all india"]):
+    elif re.search(r"\b(central|all india)\b", lower_text) or any(w in lower_text for w in ["కేంద్ర", "భారత"]):
         slots["state"] = "Central"
 
     # 2. Course level (for education / scholarships)
-    if any(w in lower_text for w in ["బీటెక్", "btech", "b.tech", "ఇంజనీరింగ్", "engineering", "మెడిసిన్", "mbbs", "pharmacy", "ఫార్మసీ"]):
+    if re.search(r"\b(btech|b\.tech|engineering|mbbs|pharmacy)\b", lower_text) or any(w in lower_text for w in ["బీటెక్", "ఇంజనీరింగ్", "మెడిసిన్", "ఫార్మసీ"]):
         slots["course_level"] = "engineering"
-    elif any(w in lower_text for w in ["డిగ్రీ", "degree", "డిప్లొమా", "diploma", "bsc", "bcom", "ba", "polytechnic", "పాలిటెక్నిక్", "iti", "ఐటీఐ"]):
+    elif re.search(r"\b(degree|diploma|bsc|bcom|ba|polytechnic|iti)\b", lower_text) or any(w in lower_text for w in ["డిగ్రీ", "డిప్లొమా", "పాలిటెక్నిక్", "ఐటీఐ"]):
         slots["course_level"] = "degree"
-    elif any(w in lower_text for w in ["ఇంటర్", "inter", "intermediate", "11వ", "12వ", "+2"]):
+    elif re.search(r"\b(inter|intermediate|10\+2|\+2)\b", lower_text) or any(w in lower_text for w in ["ఇంటర్", "11వ", "12వ"]):
         slots["course_level"] = "intermediate"
-    elif any(w in lower_text for w in ["స్కూల్", "school", "పాఠశాల", "1వ", "2వ", "3వ", "4వ", "5వ", "6వ", "7వ", "8వ", "9వ", "10వ", "10th", "క్లాస్"]):
+    elif re.search(r"\b(school|10th)\b", lower_text) or any(w in lower_text for w in ["స్కూల్", "పాఠశాల", "1వ", "2వ", "3వ", "4వ", "5వ", "6వ", "7వ", "8వ", "9వ", "10వ", "క్లాస్"]):
         slots["course_level"] = "school"
-    elif any(w in lower_text for w in ["పీజీ", "pg", "mtech", "mba", "mca", "msc"]):
+    elif re.search(r"\b(pg|mtech|mba|mca|msc)\b", lower_text) or any(w in lower_text for w in ["పీజీ"]):
         slots["course_level"] = "pg"
 
     # 3. Caste category
-    if any(w in lower_text for w in ["ఎస్సీ", "ఎస్టీ", "sc", "st", "దళిత", "గిరిజన"]):
+    if re.search(r"\b(sc|st)\b", lower_text) or any(w in lower_text for w in ["ఎస్సీ", "ఎస్టీ", "దళిత", "గిరిజన"]):
         slots["caste_category"] = "SC/ST"
-    elif any(w in lower_text for w in ["బీసీ", "bc", "obc", "ఓబీసీ", "వెనుకబడిన"]):
+    elif re.search(r"\b(bc|obc)\b", lower_text) or any(w in lower_text for w in ["బీసీ", "ఓబీసీ", "వెనుకబడిన"]):
         slots["caste_category"] = "BC"
-    elif any(w in lower_text for w in ["మైనారిటీ", "minority", "ముస్లిం", "muslim", "క్రిస్టియన్", "christian"]):
+    elif re.search(r"\b(minority|muslim|christian)\b", lower_text) or any(w in lower_text for w in ["మైనారిటీ", "ముస్లిం", "క్రిస్టియన్"]):
         slots["caste_category"] = "Minority"
-    elif any(w in lower_text for w in ["ఈబీసీ", "ebc", "కాపు", "kapu"]):
+    elif re.search(r"\b(ebc|kapu)\b", lower_text) or any(w in lower_text for w in ["ఈబీసీ", "కాపు"]):
         slots["caste_category"] = "EBC"
-    elif any(w in lower_text for w in ["ఓసీ", "oc", "general", "జనరల్", "ఓపెన్"]):
+    elif re.search(r"\b(oc|general|open category)\b", lower_text) or any(w in lower_text for w in ["ఓసీ", "జనరల్", "ఓపెన్"]):
         slots["caste_category"] = "OC"
 
     # 4. Income or White Ration Card
-    if any(w in lower_text for w in ["రేషన్ కార్డు", "తెల్ల కార్డు", "white card", "white ration", "పేద", "below", "అవును", "ఉంది", "yes", "తక్కువ ఆదాయం"]):
+    if re.search(r"\b(yes)\b", lower_text) or any(w in lower_text for w in ["రేషన్ కార్డు", "తెల్ల కార్డు", "white card", "white ration", "పేద", "below", "అవును", "ఉంది", "తక్కువ ఆదాయం"]):
         slots["income_or_ration"] = "eligible"
-    elif any(w in lower_text for w in ["ఎక్కువ ఆదాయం", "రేషన్ కార్డు లేదు", "లేదు", "no"]):
+    elif re.search(r"\b(no)\b", lower_text) or any(w in lower_text for w in ["ఎక్కువ ఆదాయం", "రేషన్ కార్డు లేదు", "లేదు"]):
         slots["income_or_ration"] = "ineligible"
 
     # 5. Land status (for agriculture)

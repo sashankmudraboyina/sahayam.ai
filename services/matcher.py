@@ -31,9 +31,9 @@ def extract_entities(text: str) -> Dict[str, Any]:
     }
 
     # State jurisdiction preference
-    if any(w in lower_text for w in ["తెలంగాణ", "telangana", "ts", "హైదరాబాద్"]):
+    if re.search(r"\b(telangana|ts)\b", lower_text) or any(w in lower_text for w in ["తెలంగాణ", "హైదరాబాద్"]):
         entities["jurisdiction"] = "Telangana"
-    elif any(w in lower_text for w in ["ఆంధ్రప్రదేశ్", "ఆంధ్ర", "andhra", "ap", "విజయవాడ", "అమరావతి"]):
+    elif re.search(r"\b(andhra|ap)\b", lower_text) or any(w in lower_text for w in ["ఆంధ్రప్రదేశ్", "ఆంధ్ర", "విజయవాడ", "అమరావతి"]):
         entities["jurisdiction"] = "Andhra Pradesh"
 
     # 1. Land size extraction (e.g., "రెండు ఎకరాలు", "2 ఎకరాల", "2.5 acres", "ఒక ఎకరం")
@@ -86,8 +86,58 @@ GENERIC_NAME_TOKENS = {
     "రైతు", "రైతులు", "రైతును", "రైతులకు", "మహిళ", "మహిళలు", "మహిళలకు",
     "విద్యార్థి", "విద్యార్థులు", "విద్యార్థులకు", "పథకం", "పథకాలు", "పథకానికి",
     "స్కీమ్", "యోజన", "ప్రభుత్వ", "సాయం", "farmer", "farmers", "scheme", "schemes",
-    "yojana", "government", "assistance", "support",
+    "yojana", "government", "assistance", "support", "for", "and", "the", "state", "central"
 }
+
+
+def find_scheme_by_name_or_query(query: str) -> Optional[Dict[str, Any]]:
+    """Identifies an explicit scheme referenced in user natural language text."""
+    if not query:
+        return None
+    lower = query.lower()
+    best_match = None
+    best_score = 0
+
+    STOP_WORDS = {
+        "scheme", "schemes", "government", "yojana", "pathakam",
+        "bharosa", "pradesh", "telangana", "andhra", "state", "central",
+        "pension", "pensions", "bima", "card", "cards", "loan", "loans",
+        "details", "information", "documents", "portal", "website", "online"
+    }
+
+    for s in SCHEMES:
+        names = [
+            s.get("name_en", ""),
+            s.get("name_te", ""),
+            s.get("also_known_as", ""),
+            s.get("id", "")
+        ]
+        # 1. Full name or prefix matching
+        for n in names:
+            if not n:
+                continue
+            clean_n = n.lower().split("(")[0].strip()
+            if len(clean_n) >= 4 and clean_n in lower:
+                score = len(clean_n) * 2
+                if score > best_score:
+                    best_match = s
+                    best_score = score
+
+            # Distinctive tokens (e.g. aasara, epass, aarogyasri, kisan, sukhibhava, vandanam, deevena, mudra, svanidhi)
+            for token in re.findall(r"[a-zA-Z0-9\u0C00-\u0C7F]+", n.lower()):
+                if len(token) >= 4 and token not in STOP_WORDS:
+                    matched = False
+                    if re.match(r"^[a-z0-9]+$", token):
+                        matched = bool(re.search(rf"\b{re.escape(token)}\b", lower))
+                    else:
+                        matched = token in lower
+                    if matched:
+                        score = len(token)
+                        if score > best_score:
+                            best_match = s
+                            best_score = score
+
+    return best_match
 
 
 def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
@@ -124,16 +174,29 @@ def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
             name_tokens.extend(re.findall(r"[\w\u0C00-\u0C7F]+", scheme["also_known_as"].lower()))
 
         for token in name_tokens:
-            if len(token) >= 3 and token not in GENERIC_NAME_TOKENS and token in lower_query:
-                score += 5.0
-                break
+            token_lower = token.lower()
+            if len(token_lower) >= 3 and token_lower not in GENERIC_NAME_TOKENS:
+                if re.match(r"^[a-z0-9]+$", token_lower):
+                    if re.search(rf"\b{re.escape(token_lower)}\b", lower_query):
+                        score += 5.0
+                        break
+                else:
+                    if token_lower in lower_query:
+                        score += 5.0
+                        break
 
         # 4. Tag matching
         matched_tags = 0
         for tag in scheme["tags"]:
-            if tag.lower() in lower_query:
-                matched_tags += 1
-                score += 2.0
+            tag_lower = tag.lower()
+            if re.match(r"^[a-z0-9\.\+\-]+$", tag_lower):
+                if re.search(rf"\b{re.escape(tag_lower)}\b", lower_query):
+                    matched_tags += 1
+                    score += 2.0
+            else:
+                if tag_lower in lower_query:
+                    matched_tags += 1
+                    score += 2.0
 
         # 5. Specific constraint analysis (Land, Farmer type, etc.)
         if scheme["category"] == "agriculture":

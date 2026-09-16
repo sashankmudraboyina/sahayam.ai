@@ -10,6 +10,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from data.schemes import SCHEMES
 from services.html_sanitizer import prepare_telegram_message
 from services.matcher import (
+    find_scheme_by_name_or_query,
     format_multiple_schemes_summary,
     format_scheme_detailed_telugu,
     match_schemes,
@@ -17,7 +18,7 @@ from services.matcher import (
 
 logger = logging.getLogger("telegram_bot.ai_engine")
 
-MODELS_TO_TRY = ["gemini-2.5-flash-lite", "gemini-flash-latest", "gemini-2.5-flash"]
+MODELS_TO_TRY = ["gemini-2.5-flash", "gemini-3.5-flash", "gemini-flash-latest", "gemini-3.1-flash-lite"]
 
 # Load local Government Schemes Dataset
 DATASET_PATH = Path(__file__).resolve().parent.parent / "govt_schemes_dataset.md"
@@ -176,6 +177,19 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
 
     # Match relevant schemes from local database for context & fallback
     matched_results = match_schemes(user_text)
+    if not matched_results:
+        found_direct = find_scheme_by_name_or_query(user_text)
+        if found_direct:
+            matched_results = [(found_direct, 10.0, "నేరుగా పేర్కొన్న పథకం")]
+
+    # If still no match, inspect conversation history for recently discussed scheme
+    if not matched_results and conversation_history:
+        for turn in reversed(conversation_history):
+            t_text = turn.get("text", "")
+            s = find_scheme_by_name_or_query(t_text)
+            if s:
+                matched_results = [(s, 8.0, "మునుపటి సంభాషణలో చర్చించబడిన పథకం")]
+                break
 
     # If Gemini is configured, use it grounded strictly on the dataset (without external search tools)
     if client:
