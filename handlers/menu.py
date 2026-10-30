@@ -12,7 +12,7 @@ from handlers.schemes_handler import (
     scheme_documents_callback,
     speak_voice_callback,
 )
-from handlers.start import get_home_keyboard, get_welcome_text, help_command
+from handlers.start import get_home_keyboard, get_welcome_text, help_command, language_command
 from handlers.wizard import (
     start_wizard_callback,
     wizard_category_selected,
@@ -60,12 +60,38 @@ async def main_callback_router(update: Update, context: ContextTypes.DEFAULT_TYP
         await query.answer()
         user = update.effective_user
         name = user.first_name if user else "మిత్రమా"
+        lang = context.user_data.get("language", "te")
         if query.message:
             await query.message.edit_text(
-                text=get_welcome_text(name),
-                reply_markup=get_home_keyboard(),
+                text=get_welcome_text(name, lang=lang),
+                reply_markup=get_home_keyboard(lang=lang),
                 parse_mode=ParseMode.HTML,
             )
+
+    elif data == "nav:language":
+        await language_command(update, context)
+
+    elif data.startswith("lang:"):
+        await query.answer()
+        chosen = data.split(":")[1]
+        context.user_data["language"] = chosen
+        if chosen == "en":
+            text = (
+                "🌐 <b>Language switched to English!</b>\n\n"
+                "You can now converse with Sahayam.ai in English via text or voice. "
+                "Describe your situation or choose from the options below:"
+            )
+            markup = get_home_keyboard(lang="en")
+        else:
+            text = (
+                "🌐 <b>భాష తెలుగులోకి మార్చబడింది!</b>\n\n"
+                "మీరు ఇప్పుడు సహాయం.ai తో తెలుగులో సంభాషించవచ్చు. "
+                "మీ ప్రశ్నను టైప్ చేయండి లేదా వాయిస్ మెసేజ్ పంపండి:"
+            )
+            markup = get_home_keyboard(lang="te")
+
+        if query.message:
+            await query.message.edit_text(text=text, reply_markup=markup, parse_mode=ParseMode.HTML)
 
     elif data == "nav:wizard":
         await start_wizard_callback(update, context)

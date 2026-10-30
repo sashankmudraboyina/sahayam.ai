@@ -114,5 +114,70 @@ class TestEligibilityFlow(unittest.TestCase):
         self.assertTrue(len(eligible) >= 2)
 
 
+    def test_user_degree_student_query(self):
+        # The user's query:
+        q = "నేను 20 సంవత్సరాల అబ్బాయిని డిగ్రీ చేస్తున్నాను నాకు ఎలాంటి స్కాలర్షిప్స్ వస్తాయి"
+        domain = detect_domain(q)
+        self.assertEqual(domain, DOMAIN_SCHOLARSHIP)
+        slots = extract_slots_from_text(q)
+        self.assertEqual(slots.get("course_level"), "degree")
+
+        missing = get_missing_slots(domain, slots)
+        self.assertIn("state", missing)
+
+        # Question 1: State
+        next_slot = missing[0]
+        q_text, buttons = get_slot_question_and_buttons(domain, next_slot, slots)
+        self.assertIn("డిగ్రీ / డిప్లొమా", q_text)  # Recap present!
+
+        # User replies "మాది ఏపీ"
+        slots = extract_slots_from_text("మాది ఏపీ", slots, expected_slot="state")
+        self.assertEqual(slots.get("state"), "Andhra Pradesh")
+
+        # Question 2: Caste
+        missing = get_missing_slots(domain, slots)
+        self.assertEqual(missing[0], "caste_category")
+        q_text, buttons = get_slot_question_and_buttons(domain, missing[0], slots)
+        self.assertIn("Andhra Pradesh", q_text)
+
+        # User replies "బీసీ"
+        slots = extract_slots_from_text("నేను బీసీ", slots, expected_slot="caste_category")
+        self.assertEqual(slots.get("caste_category"), "BC")
+
+        # Question 3: Income / Ration card
+        missing = get_missing_slots(domain, slots)
+        self.assertEqual(missing[0], "income_or_ration")
+
+        # User replies "తెల్ల రేషన్ కార్డు ఉంది"
+        slots = extract_slots_from_text("తెల్ల రేషన్ కార్డు ఉంది", slots, expected_slot="income_or_ration")
+        self.assertEqual(slots.get("income_or_ration"), "eligible")
+
+        # Now all slots collected!
+        missing = get_missing_slots(domain, slots)
+        self.assertEqual(len(missing), 0)
+
+        eligible = match_eligible_schemes_for_profile(domain, slots)
+        eligible_ids = [s["id"] for s in eligible]
+        self.assertIn("jagananna_vidya_deevena", eligible_ids)
+
+    def test_ration_card_negative_cue(self):
+        # Ensure "రేషన్ కార్డు లేదు" is NOT marked eligible
+        slots = extract_slots_from_text("మాకు రేషన్ కార్డు లేదు")
+        self.assertEqual(slots.get("income_or_ration"), "ineligible")
+
+        slots_yes = extract_slots_from_text("మాకు తెల్ల రేషన్ కార్డు ఉంది")
+        self.assertEqual(slots_yes.get("income_or_ration"), "eligible")
+
+    def test_general_domain_prompt(self):
+        from services.eligibility_flow import DOMAIN_GENERAL
+        q = "నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?"
+        d = detect_domain(q)
+        self.assertEqual(d, DOMAIN_GENERAL)
+        q_text, buttons = get_slot_question_and_buttons(DOMAIN_GENERAL, "category")
+        self.assertIn("నమస్కారం", q_text)
+        self.assertTrue(any("రైతులు" in b[0] for row in buttons for b in row))
+        self.assertTrue(len(buttons) >= 3)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -45,19 +45,17 @@ CONVERSATIONAL CONTINUITY & BOUNDARIES:
    - If a citizen asks about unrelated topics (movies, sports, coding, general trivia, politics):
      Politely decline in Telugu and gently guide them back to welfare schemes:
      "క్షమించండి, నేను ప్రభుత్వ సంక్షేమ పథకాలు మరియు వాటి అర్హతలకు సంబంధించిన సమాచారాన్ని మాత్రమే అందించే సహాయకుడిని. దయచేసి సంక్షేమ పథకాల గురించి అడగండి."
-3. STEP-BY-STEP ELIGIBILITY QUESTIONING FLOW (CRITICAL RULE):
-   - First analyse the user query.
-   - Check if the citizen provided ALL details required to determine their complete eligibility.
-     • For scholarships: State (Telangana vs Andhra Pradesh vs Central), Course level (School vs Intermediate vs Degree/Engineering vs PG), Caste category (SC, ST, BC, EBC, Minority, OC), and Family income / White ration card status.
-     • For farmers: State and Landholding size (acres) or tenant farmer status.
-     • For pensions: State and Age or situation (elderly 60+, widow, disability SADAREM).
-     • For housing: State, white ration card, and whether they own a house site/patta.
-   - If they missed ANY of the details:
-     DO NOT dump a list of schemes yet!
-     Ask questions ONE BY ONE (only 1 single question per message in warm, polite Telugu) to gather the missing details.
-     Never ask multiple questions in the same message.
-   - Once all details are collected (or if the user provided all required details upfront):
-     Present the exact eligible scholarship(s) or scheme(s) from the dataset with why they qualify, benefits, required documents, and official portal links.
+3. WHEN TO ASK QUESTIONS (CRITICAL - ASK ONLY WHEN NEEDED, NEVER ASK REDUNDANT INFO):
+   - Ask clarifying questions ONLY when the citizen explicitly requests to evaluate their personal eligibility or find matching schemes for themselves, AND essential criteria are missing.
+   - NEVER ask questions if:
+     • The citizen is asking about a specific scheme (e.g. "Tell me about PM Kisan", "Kalyana Lakshmi application", "PM Mudra loan", "Rythu Bharosa"). Directly provide the complete details, benefits, documents, and portal link for that scheme!
+     • The citizen is asking an informational, factual, or rule question (e.g. "What is the age limit for pension?", "How much financial aid is given?", "Is white ration card needed?"). Answer their question directly without interrogating them!
+     • The information was already provided earlier in the conversation or in their query. NEVER ask for redundant information you already know!
+     • The scheme is a Central scheme that applies across all states (e.g. PM-KISAN, MUDRA, SVANidhi, PM Vishwakarma). Do NOT ask for state!
+   - When asking is genuinely needed:
+     Ask ONLY for the single missing piece of information (only 1 single polite question per message). Never ask multiple questions.
+   - When all details are known or provided upfront:
+     Immediately present the exact eligible schemes with reasons, benefits, documents, and official portal links.
 
 4. When Multiple Schemes Are Identified (CRITICAL - AVOID LONG OVERWHELMING MESSAGES):
    - When 2 or more schemes apply to the citizen's query (e.g., small farmer qualifies for PM-KISAN, Rythu Bharosa, and PMFBY):
@@ -136,42 +134,125 @@ def extract_gov_urls(text: str, matched_schemes: Optional[List[Tuple[Dict[str, A
     return clean_urls
 
 
-def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg") -> Optional[str]:
-    """Transcribes citizen voice message (Telugu/English speech) using Gemini audio capabilities."""
-    client = _get_gemini_client()
-    if not client:
-        return None
-
+def _transcribe_with_speech_recognition(audio_bytes: bytes, preferred_lang: str = "te") -> Optional[str]:
+    """Transcribes audio using Google Speech Recognition (free, no API key required) supporting Telugu (te-IN) and English (en-IN)."""
     try:
-        from google.genai import types
-        part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
-        prompt = (
-            "You are a helpful speech-to-text transcriber for Telugu citizens. "
-            "Listen to this audio carefully. It contains speech in Telugu (or mixed Telugu-English). "
-            "Transcribe the spoken words accurately into clean Telugu script. "
-            "Return ONLY the transcribed text. Do not add notes, quotes, or explanations."
-        )
+        import io
+        import subprocess
+        import speech_recognition as sr
 
-        for model_name in MODELS_TO_TRY:
+        ffmpeg_exe = "ffmpeg"
+        try:
+            import imageio_ffmpeg
+            ffmpeg_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        except Exception:
+            pass
+
+        proc = subprocess.Popen(
+            [ffmpeg_exe, "-y", "-i", "pipe:0", "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+        )
+        wav_bytes, err = proc.communicate(input=audio_bytes)
+        if proc.returncode != 0 or not wav_bytes:
+            logger.warning(f"Audio conversion failed: {err.decode(errors='ignore')}")
+            return None
+
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(io.BytesIO(wav_bytes)) as source:
+            audio = recognizer.record(source)
+
+        lang_order = ["en-IN", "te-IN"] if preferred_lang == "en" else ["te-IN", "en-IN"]
+        for target_lang in lang_order:
             try:
-                response = client.models.generate_content(
-                    model=model_name,
-                    contents=[part, prompt],
-                )
-                if response and response.text:
-                    cleaned = response.text.strip().strip('"').strip("'")
-                    logger.info(f"Voice transcribed successfully via {model_name}: {cleaned}")
-                    return cleaned
-            except Exception as e:
-                logger.warning(f"Voice transcription failed on {model_name}: {e}")
+                rec_text = recognizer.recognize_google(audio, language=target_lang)
+                if rec_text and rec_text.strip():
+                    logger.info(f"Voice transcribed via speech_recognition ({target_lang}): {rec_text.strip()}")
+                    return rec_text.strip()
+            except sr.UnknownValueError:
                 continue
+            except Exception as e:
+                logger.warning(f"{target_lang} speech recognition error: {e}")
+
+        # If standard audio failed to recognize, try with volume normalization (helps low-volume/distant microphone audio)
+        try:
+            proc_norm = subprocess.Popen(
+                [ffmpeg_exe, "-y", "-i", "pipe:0", "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-f", "wav", "-ar", "16000", "-ac", "1", "pipe:1"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+            wav_norm, _ = proc_norm.communicate(input=audio_bytes)
+            if proc_norm.returncode == 0 and wav_norm:
+                with sr.AudioFile(io.BytesIO(wav_norm)) as source:
+                    audio_norm = recognizer.record(source)
+                for target_lang in lang_order:
+                    try:
+                        rec_text = recognizer.recognize_google(audio_norm, language=target_lang)
+                        if rec_text and rec_text.strip():
+                            logger.info(f"Voice transcribed via speech_recognition normalized ({target_lang}): {rec_text.strip()}")
+                            return rec_text.strip()
+                    except sr.UnknownValueError:
+                        continue
+                    except Exception as e:
+                        logger.warning(f"{target_lang} normalized speech recognition error: {e}")
+        except Exception as e:
+            logger.debug(f"Audio normalization fallback skipped: {e}")
+
     except Exception as e:
-        logger.error(f"Error in transcribe_voice: {e}")
+        logger.error(f"Error in _transcribe_with_speech_recognition: {e}")
 
     return None
 
 
-async def analyze_citizen_query(user_text: str, conversation_history: list = None) -> Dict[str, Any]:
+def transcribe_voice(audio_bytes: bytes, mime_type: str = "audio/ogg", preferred_lang: str = "te") -> Optional[str]:
+    """Transcribes citizen voice message (Telugu/English speech) using Gemini or Google Speech Recognition fallback."""
+    client = _get_gemini_client()
+    if client:
+        try:
+            from google.genai import types
+            part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+            if preferred_lang == "en":
+                prompt = (
+                    "You are a helpful speech-to-text transcriber for Indian citizens. "
+                    "Listen to this audio carefully. It contains speech in English (or mixed Indian English/Telugu). "
+                    "Transcribe the spoken words accurately into clean English text. "
+                    "Return ONLY the transcribed text. Do not add notes, quotes, or explanations."
+                )
+            else:
+                prompt = (
+                    "You are a helpful speech-to-text transcriber for Telugu citizens. "
+                    "Listen to this audio carefully. It contains speech in Telugu (or mixed Telugu-English). "
+                    "Transcribe the spoken words accurately into clean Telugu script. "
+                    "Return ONLY the transcribed text. Do not add notes, quotes, or explanations."
+                )
+
+            for model_name in MODELS_TO_TRY:
+                try:
+                    response = client.models.generate_content(
+                        model=model_name,
+                        contents=[part, prompt],
+                    )
+                    if response and response.text:
+                        cleaned = response.text.strip().strip('"').strip("'")
+                        logger.info(f"Voice transcribed successfully via {model_name}: {cleaned}")
+                        return cleaned
+                except Exception as e:
+                    logger.warning(f"Voice transcription failed on {model_name}: {e}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error in Gemini transcribe_voice: {e}")
+
+    # Fallback: Google Speech Recognition with ffmpeg audio decoding
+    fallback_text = _transcribe_with_speech_recognition(audio_bytes, preferred_lang=preferred_lang)
+    if fallback_text:
+        return fallback_text
+
+    return None
+
+
+async def analyze_citizen_query(user_text: str, conversation_history: list = None, lang: str = "te") -> Dict[str, Any]:
     """Answers conversational queries grounded strictly on the local government schemes dataset."""
     client = _get_gemini_client()
 
@@ -180,7 +261,7 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
     if not matched_results:
         found_direct = find_scheme_by_name_or_query(user_text)
         if found_direct:
-            matched_results = [(found_direct, 10.0, "నేరుగా పేర్కొన్న పథకం")]
+            matched_results = [(found_direct, 10.0, "నేరుగా పేర్కొన్న పథకం" if lang == "te" else "Directly queried scheme")]
 
     # If still no match, inspect conversation history for recently discussed scheme
     if not matched_results and conversation_history:
@@ -188,7 +269,7 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
             t_text = turn.get("text", "")
             s = find_scheme_by_name_or_query(t_text)
             if s:
-                matched_results = [(s, 8.0, "మునుపటి సంభాషణలో చర్చించబడిన పథకం")]
+                matched_results = [(s, 8.0, "మునుపటి సంభాషణలో చర్చించబడిన పథకం" if lang == "te" else "Scheme discussed in previous turns")]
                 break
 
     # If Gemini is configured, use it grounded strictly on the dataset (without external search tools)
@@ -198,21 +279,28 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
         matched_context = [
             {
                 "id": m[0].get("id"),
-                "name": m[0].get("name_te"),
+                "name": m[0].get("name_en" if lang == "en" else "name_te"),
                 "jurisdiction": m[0].get("jurisdiction"),
-                "category": m[0].get("category_te"),
-                "benefits": m[0].get("benefits_te"),
-                "eligibility": m[0].get("eligibility_te"),
+                "category": m[0].get("category" if lang == "en" else "category_te"),
+                "benefits": m[0].get("benefits_en" if lang == "en" else "benefits_te"),
+                "eligibility": m[0].get("eligibility_en" if lang == "en" else "eligibility_te"),
                 "official_link": m[0].get("official_link"),
             }
             for m in matched_results[:5]
         ] if matched_results else []
 
+        lang_instruction = (
+            "LANGUAGE DIRECTIVE: The citizen prefers English. You MUST respond completely in clear, polite English (optionally mention Telugu scheme names in parentheses)."
+            if lang == "en"
+            else "LANGUAGE DIRECTIVE: The citizen prefers Telugu. You MUST respond primarily in natural, polite Telugu."
+        )
+
         knowledge_context = (
+            f"{lang_instruction}\n"
             f"Top matched schemes from dataset for this query:\n{json.dumps(matched_context, ensure_ascii=False, indent=2)}\n\n"
             "Ground your answer strictly on the authoritative dataset provided in the system instruction. "
             "Do NOT browse or search online. Follow the concise multi-scheme format if 2 or more schemes apply. "
-            "If user query is vague, ask 1 or 2 targeted Telugu clarifying questions."
+            f"If user query is vague, ask 1 or 2 targeted {'English' if lang == 'en' else 'Telugu'} clarifying questions."
         )
 
         # Build multi-turn contents list
@@ -224,18 +312,26 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
                     parts=[types.Part.from_text(text=turn.get("text", ""))]
                 ))
 
-        # Current user turn with context directive
+        # Current turn with context directive
         current_turn_text = f"{user_text}\n\n[Context: {knowledge_context}]"
         contents.append(types.Content(
             role="user",
             parts=[types.Part.from_text(text=current_turn_text)]
         ))
 
+        sys_inst = SYSTEM_INSTRUCTION
+        if lang == "en":
+            sys_inst += (
+                "\n\nCRITICAL LANGUAGE OVERRIDE: The citizen has chosen to communicate in English. "
+                "You MUST provide all your responses, explanations, step-by-step guides, benefits, "
+                "and clarifying questions strictly in English. You may mention the Telugu scheme names in parentheses."
+            )
+
         for model_name in MODELS_TO_TRY:
             try:
                 # Strictly local dataset grounding: NO tools=[google_search]
                 gen_config = types.GenerateContentConfig(
-                    system_instruction=SYSTEM_INSTRUCTION,
+                    system_instruction=sys_inst,
                 )
 
                 response = client.models.generate_content(
@@ -262,13 +358,22 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
 
     # 2. Rule-based intelligent fallback output if Gemini was unavailable or errored
     if not matched_results:
-        no_match_text = (
-            "🙏 <b>సహాయం (Sahayam.ai)</b>\n\n"
-            "క్షమించండి, మీరు తెలిపిన వివరాలతో సరిపోయే పథకాలను మా డేటాసెట్‌లో గుర్తించలేకపోయాము.\n\n"
-            "💡 <b>సూచన:</b> దయచేసి మీ వృత్తి (రైతు, విద్యార్థి, మహిళ, వ్యాపారి), మీ వద్ద ఉన్న భూమి (ఉదా: 2 ఎకరాలు), "
-            "లేదా మీకు కావలసిన సాయం గురించి మరింత వివరంగా తెలియజేయండి.\n\n"
-            "<i>ఉదాహరణ: 'నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?'</i>"
-        )
+        if lang == "en":
+            no_match_text = (
+                "🙏 <b>Sahayam (సహాయం.ai)</b>\n\n"
+                "Sorry, we could not find matching schemes in our dataset with the details provided.\n\n"
+                "💡 <b>Tip:</b> Please tell us your occupation (farmer, student, woman, business), "
+                "landholding (e.g. 2 acres), or the specific assistance you are looking for.\n\n"
+                "<i>Example: 'I have 2 acres of land. I am a small farmer. What government schemes are available for me?'</i>"
+            )
+        else:
+            no_match_text = (
+                "🙏 <b>సహాయం (Sahayam.ai)</b>\n\n"
+                "క్షమించండి, మీరు తెలిపిన వివరాలతో సరిపోయే పథకాలను మా డేటాసెట్‌లో గుర్తించలేకపోయాము.\n\n"
+                "💡 <b>సూచన:</b> దయచేసి మీ వృత్తి (రైతు, విద్యార్థి, మహిళ, వ్యాపారి), మీ వద్ద ఉన్న భూమి (ఉదా: 2 ఎకరాలు), "
+                "లేదా మీకు కావలసిన సాయం గురించి మరింత వివరంగా తెలియజేయండి.\n\n"
+                "<i>ఉదాహరణ: 'నాకు రెండు ఎకరాల పొలం ఉంది. నేను చిన్న రైతును. నాకు ఏ ప్రభుత్వ పథకాలు వర్తిస్తాయి?'</i>"
+            )
         return {
             "mode": "fallback_empty",
             "text": no_match_text,
@@ -277,7 +382,7 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
         }
 
     if len(matched_results) > 1:
-        formatted_response = format_multiple_schemes_summary(matched_results)
+        formatted_response = format_multiple_schemes_summary(matched_results, lang=lang)
         return {
             "mode": "deterministic_summary",
             "text": prepare_telegram_message(formatted_response),
@@ -286,9 +391,9 @@ async def analyze_citizen_query(user_text: str, conversation_history: list = Non
         }
 
     top_scheme, top_score, top_reason = matched_results[0]
+    header = "🌾 <b>Sahayam (సహాయం.ai) - Scheme Details</b>\n\n" if lang == "en" else "🌾 <b>సహాయం (Sahayam.ai) - పథకం వివరాలు</b>\n\n"
     formatted_response = (
-        f"🌾 <b>సహాయం (Sahayam.ai) - పథకం వివరాలు</b>\n\n"
-        f"{format_scheme_detailed_telugu(top_scheme, top_reason)}"
+        header + format_scheme_detailed_telugu(top_scheme, top_reason, lang=lang)
     )
     return {
         "mode": "deterministic_detail",

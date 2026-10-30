@@ -241,10 +241,33 @@ def match_schemes(user_query: str) -> List[Tuple[Dict[str, Any], float, str]]:
     return scored_schemes
 
 
-def format_scheme_detailed_telugu(scheme: Dict[str, Any], qualification_note: str) -> str:
-    """Formats a scheme into a structured, crystal-clear Telugu response complying with all requirements."""
-    docs_formatted = "\n".join([f"  • {doc}" for doc in scheme["documents_te"]])
+def format_scheme_detailed_telugu(scheme: Dict[str, Any], qualification_note: str, lang: str = "te") -> str:
+    """Formats a scheme into a structured, crystal-clear response (Telugu or English)."""
+    if lang == "en":
+        docs = scheme.get("documents_en") or scheme.get("documents_te", [])
+        docs_formatted = "\n".join([f"  • {doc}" for doc in docs])
+        benefits = scheme.get("benefits_en") or scheme.get("benefits_te", "")
+        eligibility = scheme.get("eligibility_en") or scheme.get("eligibility_te", "")
+        app_steps = scheme.get("application_steps_en") or scheme.get("application_steps_te", "")
+        return (
+            f"🏛 <b>{scheme.get('name_en', scheme.get('name_te'))}</b>\n"
+            f"<i>({scheme.get('name_te')})</i>\n"
+            f"🏷 <b>Category:</b> {scheme.get('category', scheme.get('category_te'))} | <b>Jurisdiction:</b> {scheme.get('jurisdiction')}\n\n"
+            f"🎯 <b>Why you qualify (Eligibility Rationale):</b>\n"
+            f"👉 <i>{qualification_note}</i>\n\n"
+            f"💰 <b>Benefits:</b>\n"
+            f"{benefits}\n\n"
+            f"📋 <b>Eligibility Criteria:</b>\n"
+            f"{eligibility}\n\n"
+            f"📄 <b>Required Documents:</b>\n"
+            f"{docs_formatted}\n\n"
+            f"📝 <b>How to Apply (Application Procedure):</b>\n"
+            f"{app_steps}\n\n"
+            f"🌐 <b>Official Website / Application Portal:</b>\n"
+            f"🔗 <a href=\"{scheme['official_link']}\">{scheme['official_link']}</a>"
+        )
 
+    docs_formatted = "\n".join([f"  • {doc}" for doc in scheme.get("documents_te", [])])
     return (
         f"🏛 <b>{scheme['name_te']}</b>\n"
         f"<i>({scheme['name_en']})</i>\n"
@@ -264,14 +287,22 @@ def format_scheme_detailed_telugu(scheme: Dict[str, Any], qualification_note: st
     )
 
 
-def format_scheme_summary_telugu(scheme: Dict[str, Any], qualification_note: str, index: int = 1) -> str:
+def format_scheme_summary_telugu(scheme: Dict[str, Any], qualification_note: str, index: int = 1, lang: str = "te") -> str:
     """Formats a concise summary card for a scheme when multiple schemes are presented together."""
     # Keep qualification note to 1 clear sentence
     short_reason = qualification_note.split(".")[0].strip() + "." if "." in qualification_note else qualification_note.strip()
-    # Extract concise first benefit line
+    if lang == "en":
+        raw_benefit = scheme.get("benefits_en") or scheme.get("benefits_te", "").strip()
+        first_benefit = raw_benefit.split("\n")[0].lstrip("•*- ").strip()
+        return (
+            f"<b>{index}. 🏛 {scheme.get('name_en', scheme.get('name_te'))}</b>\n"
+            f"   <i>({scheme.get('name_te')})</i>\n"
+            f"   💰 <b>Benefit:</b> {first_benefit}\n"
+            f"   🎯 <b>Eligibility:</b> {short_reason}\n"
+        )
+
     raw_benefit = scheme.get("benefits_te", "").strip()
     first_benefit = raw_benefit.split("\n")[0].lstrip("•*- ").strip()
-
     return (
         f"<b>{index}. 🏛 {scheme['name_te']}</b>\n"
         f"   <i>({scheme['name_en']})</i>\n"
@@ -280,11 +311,19 @@ def format_scheme_summary_telugu(scheme: Dict[str, Any], qualification_note: str
     )
 
 
-def format_multiple_schemes_summary(matched_schemes: List[tuple]) -> str:
+def format_multiple_schemes_summary(matched_schemes: List[tuple], lang: str = "te") -> str:
     """Formats multiple matched schemes into a clean, concise digest."""
     cards = []
     for idx, (sch, score, reason) in enumerate(matched_schemes[:4], 1):
-        cards.append(format_scheme_summary_telugu(sch, reason, index=idx))
+        cards.append(format_scheme_summary_telugu(sch, reason, index=idx, lang=lang))
+
+    if lang == "en":
+        return (
+            f"🌾 <b>Sahayam (సహాయం.ai) - Matching Welfare Schemes:</b>\n\n"
+            f"Based on your profile, <b>{len(matched_schemes)}</b> government schemes were identified:\n\n"
+            + "\n".join(cards) + "\n"
+            "💡 <i>Click the buttons below to view full details, documents, and application procedures.</i>"
+        )
 
     return (
         f"🌾 <b>సహాయం (Sahayam.ai) - మీకు అనువైన పథకాలు:</b>\n\n"

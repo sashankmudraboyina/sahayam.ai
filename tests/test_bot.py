@@ -45,5 +45,10 @@ class TestBotComponents(unittest.TestCase):
         self.assertIn("voice:speak", callbacks)
 
 
+    def test_transcribe_voice_empty(self):
+        from services.ai_engine import transcribe_voice
+        self.assertIsNone(transcribe_voice(b""))
+
+
 if __name__ == "__main__":
     unittest.main()

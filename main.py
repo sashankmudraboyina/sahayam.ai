@@ -24,17 +24,16 @@ from handlers.schemes_handler import (
     reset_chat_command,
     voice_toggle_command,
 )
-from handlers.start import help_command, start_command
+from handlers.start import help_command, language_command, start_command
 from handlers.wizard import start_wizard_callback
 
 
 async def unknown_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """Handles unrecognized commands with Telugu assistance."""
+    """Handles unrecognized commands with Telugu and English assistance."""
     if update.message:
         await update.message.reply_text(
-            "❓ <i>క్షమించండి, ఈ కమాండ్ గుర్తించబడలేదు.</i>\n\n"
-            "దయచేసి <code>/start</code> లేదా <code>/help</code> టైప్ చేయండి, "
-            "లేదా మీ ప్రశ్నను నేరుగా తెలుగులో పంపండి.",
+            "❓ <i>క్షమించండి, ఈ కమాండ్ గుర్తించబడలేదు / Sorry, command not recognized.</i>\n\n"
+            "దయచేసి <code>/start</code>, <code>/language</code> లేదా <code>/help</code> టైప్ చేయండి.",
             parse_mode=ParseMode.HTML,
         )
 
@@ -56,6 +55,7 @@ async def post_init(application: Application) -> None:
     """Registers bot commands in the Telegram client UI."""
     commands = [
         BotCommand("start", "ముఖ్య మెనూ ప్రారంభించండి (Main Menu)"),
+        BotCommand("language", "భాషను మార్చండి / Select Language (English / తెలుగు)"),
         BotCommand("wizard", "అర్హత చెకర్ - దశలవారీగా (Eligibility Wizard)"),
         BotCommand("schemes", "పథకాల విభాగాలు చూడండి (Browse Categories)"),
         BotCommand("voice", "వాయిస్ సమాధానాలు ఆన్/ఆఫ్ (Toggle Voice)"),
@@ -64,7 +64,7 @@ async def post_init(application: Application) -> None:
     ]
     try:
         await application.bot.set_my_commands(commands)
-        config.logger.info("Telugu Bot commands successfully registered with Telegram.")
+        config.logger.info("Bot commands successfully registered with Telegram.")
     except Exception as e:
         config.logger.warning(f"Could not register commands with Telegram: {e}")
 
@@ -84,6 +84,8 @@ def main() -> None:
 
     # 1. Core Commands
     application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CommandHandler("language", language_command))
+    application.add_handler(CommandHandler("lang", language_command))
     application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("voice", voice_toggle_command))
     application.add_handler(CommandHandler("reset", reset_chat_command))

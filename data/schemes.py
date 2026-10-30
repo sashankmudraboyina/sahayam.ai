@@ -471,15 +471,15 @@ def get_scheme_by_id(scheme_id: str) -> Dict[str, Any] | None:
 
 
 def get_all_categories() -> List[Dict[str, str]]:
-    """Returns unique categories with friendly Telugu names and emoji."""
+    """Returns unique categories with friendly Telugu & English names and emoji."""
     return [
-        {"key": "agriculture", "name_te": "🌾 వ్యవసాయం & రైతులు"},
-        {"key": "women", "name_te": "👩 మహిళలు & డ్వాక్రా"},
-        {"key": "education", "name_te": "🎓 విద్యార్థులు & చదువు"},
-        {"key": "health", "name_te": "🏥 ఆరోగ్యం & చికిత్స"},
-        {"key": "pension", "name_te": "👴 వృద్ధులు & పెన్షన్లు"},
-        {"key": "business", "name_te": "💼 వ్యాపారం & రుణాలు / ఉపాధి"},
-        {"key": "housing", "name_te": "🏠 గృహ నిర్మాణం & ఇండ్లు"},
-        {"key": "welfare", "name_te": "🤝 సంక్షేమం & సామాజిక భద్రత"},
+        {"key": "agriculture", "name_te": "🌾 వ్యవసాయం & రైతులు", "name_en": "🌾 Agriculture & Farmers"},
+        {"key": "women", "name_te": "👩 మహిళలు & డ్వాక్రా", "name_en": "👩 Women & SHG (DWACRA)"},
+        {"key": "education", "name_te": "🎓 విద్యార్థులు & చదువు", "name_en": "🎓 Students & Education"},
+        {"key": "health", "name_te": "🏥 ఆరోగ్యం & చికిత్స", "name_en": "🏥 Health & Healthcare"},
+        {"key": "pension", "name_te": "👴 వృద్ధులు & పెన్షన్లు", "name_en": "👴 Elderly & Pensions"},
+        {"key": "business", "name_te": "💼 వ్యాపారం & రుణాలు / ఉపాధి", "name_en": "💼 Business, Loans & Self-Employment"},
+        {"key": "housing", "name_te": "🏠 గృహ నిర్మాణం & ఇండ్లు", "name_en": "🏠 Housing & Shelter"},
+        {"key": "welfare", "name_te": "🤝 సంక్షేమం & సామాజిక భద్రత", "name_en": "🤝 Welfare & Social Security"},
     ]
 
